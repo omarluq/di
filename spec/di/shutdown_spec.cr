@@ -77,4 +77,27 @@ describe "Di.shutdown!" do
       end
     end
   end
+
+  it "continues shutdown and clears registry even when a service raises" do
+    shutdown_svc = ShutdownTracker.new(1)
+    Di.provide { shutdown_svc }
+    Di.provide { FailingShutdownService.new }
+    Di.invoke(ShutdownTracker)
+    Di.invoke(FailingShutdownService)
+
+    error = expect_raises(Di::ShutdownError) { Di.shutdown! }
+    error.errors.size.should eq(1)
+    error.errors.first.message.should eq("shutdown failed")
+
+    # Registry is cleared even after failure
+    Di.registry.registered?("ShutdownTracker").should be_false
+    # First service was still shut down
+    ShutdownTracker.order.should eq([1])
+  end
+end
+
+private class FailingShutdownService
+  def shutdown
+    raise "shutdown failed"
+  end
 end

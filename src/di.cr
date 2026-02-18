@@ -254,15 +254,15 @@ module Di
     begin
       yield
     ensure
-      shutdown_scope(child)
+      errors = shutdown_scope(child)
       scope_stack.pop
       if previous_scope
         map[name] = previous_scope
       else
         map.delete(name)
       end
-      # Auto-clean fiber-local state when scope stack is empty.
       cleanup_fiber if scope_stack.empty?
+      raise ShutdownError.new(errors) unless errors.empty?
     end
   end
 
@@ -275,12 +275,18 @@ module Di
     if current_scope
       raise ScopeError.new("Cannot call Di.shutdown! inside an active scope")
     end
+    errors = [] of Exception
     registry.reverse_order.each do |key|
       provider = registry.get?(key)
       next unless provider
-      provider.shutdown_instance
+      begin
+        provider.shutdown_instance
+      rescue ex
+        errors << ex
+      end
     end
     registry.clear
+    raise ShutdownError.new(errors) unless errors.empty?
   end
 
   # Check health of all resolved singletons in the root registry.
@@ -333,13 +339,19 @@ module Di
     end
   end
 
-  # Shutdown providers in a scope.
-  private def self.shutdown_scope(scope : Scope) : Nil
+  # Shutdown providers in a scope, collecting errors without aborting.
+  private def self.shutdown_scope(scope : Scope) : Array(Exception)
+    errors = [] of Exception
     scope.reverse_order.each do |key|
       provider = scope.get?(key)
       next unless provider
-      provider.shutdown_instance
+      begin
+        provider.shutdown_instance
+      rescue ex
+        errors << ex
+      end
     end
+    errors
   end
 
   # Collect health from registry providers.

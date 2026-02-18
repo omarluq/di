@@ -59,8 +59,8 @@ describe "Di.invoke" do
   end
 end
 
-describe "Di.get" do
-  it "is a runtime alternative to Di.invoke macro" do
+describe "Di.get (internal)" do
+  it "resolves by type class at runtime" do
     Di.provide { InvokeTestService.new(42) }
     result = Di.get(InvokeTestService)
     result.id.should eq(42)

@@ -155,5 +155,26 @@ describe "Di.scope" do
       Di.current_scope.should be_nil
       Di.registry.registered?("ScopeBlockService").should be_false
     end
+
+    it "cleans up scope state even when service shutdown raises" do
+      Di.provide { ScopeParentService.new }
+
+      error = expect_raises(Di::ShutdownError) do
+        Di.scope(:req) do
+          Di.provide { ScopeFailShutdown.new }
+          Di.invoke(ScopeFailShutdown)
+        end
+      end
+
+      error.errors.size.should eq(1)
+      Di.current_scope.should be_nil
+      Di.scopes[:req]?.should be_nil
+    end
+  end
+end
+
+private class ScopeFailShutdown
+  def shutdown
+    raise "scope shutdown failed"
   end
 end

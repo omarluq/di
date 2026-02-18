@@ -45,4 +45,13 @@ module Di
   # Raised when an invalid scope operation is attempted.
   class ScopeError < Error
   end
+
+  # Raised when one or more service shutdowns fail.
+  class ShutdownError < Error
+    getter errors : Array(Exception)
+
+    def initialize(@errors)
+      super("Shutdown failed for #{@errors.size} service(s): #{@errors.map(&.message).join(", ")}")
+    end
+  end
 end
