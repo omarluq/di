@@ -40,9 +40,7 @@ describe Di::Provider::Instance do
       instance2.id.should eq(2)
       call_count.should eq(2)
     end
-  end
 
-  describe "#resolve_typed" do
     it "returns typed result" do
       provider = Di::Provider::Instance(TestService).new(-> { TestService.new })
       result = provider.resolve_typed
