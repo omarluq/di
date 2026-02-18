@@ -78,6 +78,27 @@ describe "Fiber isolation" do
     end
   end
 
+  describe "fiber-local cleanup" do
+    it "removes fiber state after last scope exits" do
+      before_count = TestHelpers.fiber_state_count
+      mid_count = Channel(Int32).new
+      done = Channel(Nil).new
+
+      spawn do
+        Di.scope(:temp) do
+          Di.provide { ConcurrencyService.new("cleanup") }
+          Di.invoke(ConcurrencyService)
+          mid_count.send(TestHelpers.fiber_state_count)
+        end
+        done.send(nil)
+      end
+
+      mid_count.receive.should be > before_count
+      done.receive
+      TestHelpers.fiber_state_count.should eq(before_count)
+    end
+  end
+
   describe "resolution chain" do
     it "does not falsely detect cycles across concurrent resolves" do
       Di.provide { SlowServiceA.new }

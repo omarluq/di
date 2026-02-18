@@ -239,6 +239,8 @@ module Di
       else
         map.delete(name)
       end
+      # Auto-clean fiber-local state when scope stack is empty.
+      cleanup_fiber if scope_stack.empty?
     end
   end
 
@@ -291,6 +293,14 @@ module Di
     root = Scope.new(:root)
     registry.each { |key, provider| root.register(key, provider) }
     root
+  end
+
+  # Remove fiber-local state for the current fiber.
+  private def self.cleanup_fiber : Nil
+    fiber = Fiber.current
+    @@fiber_scope_stacks.delete(fiber)
+    @@fiber_scope_maps.delete(fiber)
+    @@fiber_resolution_chains.delete(fiber)
   end
 
   # Shutdown providers in a scope.
