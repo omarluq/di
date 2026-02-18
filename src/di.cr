@@ -78,6 +78,53 @@ module Di
     end
   end
 
+  # Resolve a service by type.
+  #
+  # Returns the instance as exactly `T` — fully typed, no casting.
+  # Singleton providers return the cached instance; transient providers
+  # create a new instance on every call.
+  #
+  # Example:
+  # ```
+  # db = Di.invoke(Database)
+  # primary = Di.invoke(Database, :primary)
+  # ```
+  #
+  # Raises `Di::ServiceNotFound` if the type is not registered.
+  macro invoke(type, name = nil)
+    {% if name %}
+      {% unless name.is_a?(SymbolLiteral) %}
+        {% raise "Di.invoke name requires a Symbol literal, got #{name} (use :name not a variable)" %}
+      {% end %}
+      Di.get_provider(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider::Instance({{ type }})).resolve_typed
+    {% else %}
+      Di.get_provider({{ type }}.name).as(Di::Provider::Instance({{ type }})).resolve_typed
+    {% end %}
+  end
+
+  # Resolve a service by type, returning nil if not registered.
+  #
+  # Returns `T?` — the instance or nil. Does not raise.
+  #
+  # Example:
+  # ```
+  # db = Di.invoke?(Database)
+  # replica = Di.invoke?(Database, :replica)
+  # ```
+  macro invoke?(type, name = nil)
+    {% if name %}
+      {% unless name.is_a?(SymbolLiteral) %}
+        {% raise "Di.invoke? name requires a Symbol literal, got #{name} (use :name not a variable)" %}
+      {% end %}
+      %provider = Di.get_provider?(Di::Registry.key({{ type }}.name, {{ name.id.stringify }}))
+    {% else %}
+      %provider = Di.get_provider?({{ type }}.name)
+    {% end %}
+    if %provider
+      %provider.as(Di::Provider::Instance({{ type }})).resolve_typed
+    end
+  end
+
   # Auto-wire a service by type (no block).
   #
   # Inspects the type's `initialize` method arguments at compile time and
@@ -141,53 +188,6 @@ module Di
       %key = typeof({{ block.body }}).name
     {% end %}
     Di.register_provider(%key, Di::Provider::Instance(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
-  end
-
-  # Resolve a service by type.
-  #
-  # Returns the instance as exactly `T` — fully typed, no casting.
-  # Singleton providers return the cached instance; transient providers
-  # create a new instance on every call.
-  #
-  # Example:
-  # ```
-  # db = Di.invoke(Database)
-  # primary = Di.invoke(Database, :primary)
-  # ```
-  #
-  # Raises `Di::ServiceNotFound` if the type is not registered.
-  macro invoke(type, name = nil)
-    {% if name %}
-      {% unless name.is_a?(SymbolLiteral) %}
-        {% raise "Di.invoke name requires a Symbol literal, got #{name} (use :name not a variable)" %}
-      {% end %}
-      Di.get_provider(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider::Instance({{ type }})).resolve_typed
-    {% else %}
-      Di.get_provider({{ type }}.name).as(Di::Provider::Instance({{ type }})).resolve_typed
-    {% end %}
-  end
-
-  # Resolve a service by type, returning nil if not registered.
-  #
-  # Returns `T?` — the instance or nil. Does not raise.
-  #
-  # Example:
-  # ```
-  # db = Di.invoke?(Database)
-  # replica = Di.invoke?(Database, :replica)
-  # ```
-  macro invoke?(type, name = nil)
-    {% if name %}
-      {% unless name.is_a?(SymbolLiteral) %}
-        {% raise "Di.invoke? name requires a Symbol literal, got #{name} (use :name not a variable)" %}
-      {% end %}
-      %provider = Di.get_provider?(Di::Registry.key({{ type }}.name, {{ name.id.stringify }}))
-    {% else %}
-      %provider = Di.get_provider?({{ type }}.name)
-    {% end %}
-    if %provider
-      %provider.as(Di::Provider::Instance({{ type }})).resolve_typed
-    end
   end
 
   # Create a named scope with parent inheritance.
