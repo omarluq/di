@@ -16,14 +16,18 @@ module Di
   # Example:
   # ```
   # Di.provide { Database.new(ENV["DATABASE_URL"]) }
-  # Di.provide { HttpClient.new(timeout: 30) }
+  # Di.provide(as: :primary) { Database.new(ENV["PRIMARY_URL"]) }
   # ```
   #
-  # Raises `Di::AlreadyRegistered` if the type is already registered.
-  macro provide(&block)
+  # Raises `Di::AlreadyRegistered` if the type+name pair is already registered.
+  macro provide(as _name = nil, transient _transient = false, &block)
     %factory = -> { {{ block.body }} }
-    %key = typeof({{ block.body }}).name
-    Di.registry.register(%key, Di::Provider(typeof({{ block.body }})).new(%factory))
+    {% if _name %}
+      %key = Di::Registry.key(typeof({{ block.body }}).name, {{ _name.id.stringify }})
+    {% else %}
+      %key = typeof({{ block.body }}).name
+    {% end %}
+    Di.registry.register(%key, Di::Provider(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
   end
 
   # Resolve a service by type.
@@ -35,11 +39,16 @@ module Di
   # Example:
   # ```
   # db = Di.invoke(Database)
+  # primary = Di.invoke(Database, :primary)
   # ```
   #
   # Raises `Di::ServiceNotFound` if the type is not registered.
-  macro invoke(type)
-    Di.registry.get({{ type }}.name).as(Di::Provider({{ type }})).resolve_typed
+  macro invoke(type, name = nil)
+    {% if name %}
+      Di.registry.get(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider({{ type }})).resolve_typed
+    {% else %}
+      Di.registry.get({{ type }}.name).as(Di::Provider({{ type }})).resolve_typed
+    {% end %}
   end
 
   # Resolve a service by type, returning nil if not registered.
@@ -48,10 +57,15 @@ module Di
   #
   # Example:
   # ```
-  # db = Di.invoke?(Database) # => Database | Nil
+  # db = Di.invoke?(Database)
+  # replica = Di.invoke?(Database, :replica)
   # ```
-  macro invoke?(type)
-    %provider = Di.registry.get?({{ type }}.name)
+  macro invoke?(type, name = nil)
+    {% if name %}
+      %provider = Di.registry.get?(Di::Registry.key({{ type }}.name, {{ name.id.stringify }}))
+    {% else %}
+      %provider = Di.registry.get?({{ type }}.name)
+    {% end %}
     if %provider
       %provider.as(Di::Provider({{ type }})).resolve_typed
     end
