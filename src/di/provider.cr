@@ -7,6 +7,9 @@ module Di
       abstract def transient? : Bool
       abstract def reset! : Nil
 
+      # Registry key for cycle detection (set by register_provider).
+      abstract def key=(key : String)
+
       # Attempt to call .shutdown on the cached instance (if any).
       # No-op for transient providers or unresolved singletons.
       def shutdown_instance : Nil
@@ -26,19 +29,23 @@ module Di
     class Instance(T) < Base
       @instance : T? = nil
 
+      # Registry key used for cycle detection (set on registration).
+      property key : String = T.name
+
       def initialize(@factory : -> T, @transient : Bool = false)
       end
 
       # Type-safe resolve with circular dependency guard.
       def resolve_typed : T
-        return @factory.call if @transient
-        if inst = @instance
+        # Cached singleton fast path (no cycle guard needed).
+        if !@transient && (inst = @instance)
           return inst
         end
+
         result = uninitialized T
-        Di.push_resolution(T.name) do
+        Di.push_resolution(@key) do
           result = @factory.call
-          @instance = result
+          @instance = result unless @transient
         end
         result
       end

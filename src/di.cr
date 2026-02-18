@@ -57,7 +57,9 @@ module Di
   end
 
   # Register a provider in the current scope (or root registry).
+  # Sets the provider key for cycle detection before storing.
   def self.register_provider(key : String, provider : Provider::Base) : Nil
+    provider.key = key
     if scope = current_scope
       scope.register(key, provider)
     else

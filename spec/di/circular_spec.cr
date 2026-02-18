@@ -25,6 +25,23 @@ private class CircularDeepC
   end
 end
 
+private class TransientA
+  def initialize(@b : TransientB)
+  end
+end
+
+private class TransientB
+  def initialize(@a : TransientA)
+  end
+end
+
+private class NamedNonCyclic
+  getter source : String
+
+  def initialize(@source : String)
+  end
+end
+
 describe "Circular dependency detection" do
   it "detects A -> B -> A cycle" do
     Di.provide { CircularA.new(Di.invoke(CircularB)) }
@@ -56,5 +73,25 @@ describe "Circular dependency detection" do
       ex.chain.last.should eq("CircularA")
       ex.chain.size.should be >= 2
     end
+  end
+
+  it "detects cycle in transient providers" do
+    Di.provide(transient: true) { TransientA.new(Di.invoke(TransientB)) }
+    Di.provide(transient: true) { TransientB.new(Di.invoke(TransientA)) }
+
+    expect_raises(Di::CircularDependency, /Circular dependency detected/) do
+      Di.invoke(TransientA)
+    end
+  end
+
+  it "allows same-type named providers in non-cyclic chain" do
+    Di.provide(as: :a) { NamedNonCyclic.new("a") }
+    Di.provide(as: :b) { NamedNonCyclic.new("b") }
+
+    a = Di.invoke(NamedNonCyclic, :a)
+    b = Di.invoke(NamedNonCyclic, :b)
+
+    a.source.should eq("a")
+    b.source.should eq("b")
   end
 end
