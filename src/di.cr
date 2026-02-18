@@ -78,6 +78,18 @@ module Di
     end
   end
 
+  # Runtime resolve by type class. Use inside factory blocks at top-level
+  # where the `Di.invoke` macro is not available due to Crystal parse ordering.
+  #
+  # Example:
+  # ```
+  # Di.provide { A.new }
+  # Di.provide { B.new(Di.get(A)) }
+  # ```
+  def self.get(type : T.class) : T forall T
+    get_provider(T.name).as(Provider::Instance(T)).resolve_typed
+  end
+
   # Resolve a service by type.
   #
   # Returns the instance as exactly `T` — fully typed, no casting.

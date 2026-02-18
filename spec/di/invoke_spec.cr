@@ -59,6 +59,15 @@ describe "Di.invoke" do
   end
 end
 
+describe "Di.get" do
+  it "is a runtime alternative to Di.invoke macro" do
+    Di.provide { InvokeTestService.new(42) }
+    result = Di.get(InvokeTestService)
+    result.id.should eq(42)
+    typeof(result).should eq(InvokeTestService)
+  end
+end
+
 describe "Di.invoke?" do
   describe "with registered service" do
     it "returns the resolved instance" do
