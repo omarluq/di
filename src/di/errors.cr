@@ -41,4 +41,8 @@ module Di
       super("Scope not found: #{@scope_name}")
     end
   end
+
+  # Raised when an invalid scope operation is attempted.
+  class ScopeError < Error
+  end
 end

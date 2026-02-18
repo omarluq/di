@@ -255,7 +255,11 @@ module Di
   # Clear all providers and scopes (test helper).
   #
   # Resets the container to a clean state. Primarily for use in specs.
+  # Raises `Di::ScopeError` if called inside an active scope.
   def self.reset! : Nil
+    if current_scope
+      raise ScopeError.new("Cannot call Di.reset! inside an active scope")
+    end
     @@registry.clear
     @@fiber_scope_stacks.clear
     @@scopes.clear
