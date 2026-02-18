@@ -56,12 +56,12 @@ module Di
 
   # :nodoc: Internal API for testing/debugging.
   def self.current_scope : Scope?
-    scope_stack.last?
+    @@fiber_state_mutex.synchronize { @@fiber_scope_stacks[Fiber.current]?.try(&.last?) }
   end
 
   # :nodoc: Internal API for testing/debugging.
   def self.scopes : Hash(Symbol, Scope)
-    scope_map
+    @@fiber_state_mutex.synchronize { @@fiber_scope_maps[Fiber.current]? } || {} of Symbol => Scope
   end
 
   # Returns true if any fiber has an active scope.
@@ -312,7 +312,8 @@ module Di
   # Includes inherited services from parent scopes.
   # Raises `Di::ScopeNotFound` if the scope is not active in the current fiber.
   def self.healthy?(scope_name : Symbol) : Hash(String, Bool)
-    scope = scope_map[scope_name]? || raise ScopeNotFound.new(scope_name.to_s)
+    map = @@fiber_state_mutex.synchronize { @@fiber_scope_maps[Fiber.current]? }
+    scope = map.try(&.[scope_name]?) || raise ScopeNotFound.new(scope_name.to_s)
     collect_scope_health(scope)
   end
 

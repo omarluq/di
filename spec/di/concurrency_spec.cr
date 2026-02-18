@@ -184,4 +184,23 @@ describe "Fiber isolation" do
       done.receive.should be_nil
     end
   end
+
+  describe "invoke-only fibers" do
+    it "does not allocate fiber state for Di.invoke without scope" do
+      before = TestHelpers.fiber_state_count
+
+      Di.provide { ConcurrencyService.new("test") }
+      Di.invoke(ConcurrencyService)
+
+      TestHelpers.fiber_state_count.should eq(before)
+    end
+
+    it "does not allocate fiber state for Di.provide without scope" do
+      before = TestHelpers.fiber_state_count
+
+      Di.provide { ConcurrencyService.new("new_svc") }
+
+      TestHelpers.fiber_state_count.should eq(before)
+    end
+  end
 end
