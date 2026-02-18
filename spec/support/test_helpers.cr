@@ -15,6 +15,6 @@ end
 # Internal helper exposed only for test assertions.
 module Di
   def self.fiber_state_count_internal : Int32
-    @@fiber_scope_stacks.size
+    @@fiber_state_mutex.synchronize { @@fiber_scope_stacks.size }
   end
 end

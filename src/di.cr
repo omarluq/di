@@ -1,6 +1,11 @@
+require "mutex"
+
 module Di
   # Module-level registry storing root scope providers.
   @@registry = Registry.new
+
+  # Mutex protecting fiber-local state maps for multi-threaded access.
+  @@fiber_state_mutex = Mutex.new
 
   # Fiber-local scope stacks for concurrent isolation.
   @@fiber_scope_stacks = {} of Fiber => Array(Scope)
@@ -13,17 +18,17 @@ module Di
 
   # Returns the scope stack for the current fiber.
   private def self.scope_stack : Array(Scope)
-    @@fiber_scope_stacks[Fiber.current] ||= [] of Scope
+    @@fiber_state_mutex.synchronize { @@fiber_scope_stacks[Fiber.current] ||= [] of Scope }
   end
 
   # Returns the named scope map for the current fiber.
   private def self.scope_map : Hash(Symbol, Scope)
-    @@fiber_scope_maps[Fiber.current] ||= {} of Symbol => Scope
+    @@fiber_state_mutex.synchronize { @@fiber_scope_maps[Fiber.current] ||= {} of Symbol => Scope }
   end
 
   # Returns the resolution chain for the current fiber.
   private def self.resolution_chain : Array(String)
-    @@fiber_resolution_chains[Fiber.current] ||= [] of String
+    @@fiber_state_mutex.synchronize { @@fiber_resolution_chains[Fiber.current] ||= [] of String }
   end
 
   # Track resolution chain to detect circular dependencies at runtime.
@@ -287,9 +292,11 @@ module Di
       raise ScopeError.new("Cannot call Di.reset! inside an active scope")
     end
     @@registry.clear
-    @@fiber_scope_stacks.clear
-    @@fiber_scope_maps.clear
-    @@fiber_resolution_chains.clear
+    @@fiber_state_mutex.synchronize do
+      @@fiber_scope_stacks.clear
+      @@fiber_scope_maps.clear
+      @@fiber_resolution_chains.clear
+    end
   end
 
   # Build a root scope wrapper around the registry for scope parent chains.
@@ -302,9 +309,11 @@ module Di
   # Remove fiber-local state for the current fiber.
   private def self.cleanup_fiber : Nil
     fiber = Fiber.current
-    @@fiber_scope_stacks.delete(fiber)
-    @@fiber_scope_maps.delete(fiber)
-    @@fiber_resolution_chains.delete(fiber)
+    @@fiber_state_mutex.synchronize do
+      @@fiber_scope_stacks.delete(fiber)
+      @@fiber_scope_maps.delete(fiber)
+      @@fiber_resolution_chains.delete(fiber)
+    end
   end
 
   # Shutdown providers in a scope.
