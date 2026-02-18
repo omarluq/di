@@ -98,6 +98,9 @@ module Di
       %factory = -> { {{ type }}.new }
     {% end %}
     {% if _name %}
+      {% unless _name.is_a?(SymbolLiteral) %}
+        {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+      {% end %}
       %key = Di::Registry.key({{ type }}.name, {{ _name.id.stringify }})
     {% else %}
       %key = {{ type }}.name
@@ -120,6 +123,9 @@ module Di
   macro provide(*, as _name = nil, transient _transient = false, &block)
     %factory = -> { {{ block.body }} }
     {% if _name %}
+      {% unless _name.is_a?(SymbolLiteral) %}
+        {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+      {% end %}
       %key = Di::Registry.key(typeof({{ block.body }}).name, {{ _name.id.stringify }})
     {% else %}
       %key = typeof({{ block.body }}).name
@@ -142,6 +148,9 @@ module Di
   # Raises `Di::ServiceNotFound` if the type is not registered.
   macro invoke(type, name = nil)
     {% if name %}
+      {% unless name.is_a?(SymbolLiteral) %}
+        {% raise "Di.invoke name requires a Symbol literal, got #{name} (use :name not a variable)" %}
+      {% end %}
       Di.get_provider(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider::Instance({{ type }})).resolve_typed
     {% else %}
       Di.get_provider({{ type }}.name).as(Di::Provider::Instance({{ type }})).resolve_typed
@@ -159,6 +168,9 @@ module Di
   # ```
   macro invoke?(type, name = nil)
     {% if name %}
+      {% unless name.is_a?(SymbolLiteral) %}
+        {% raise "Di.invoke? name requires a Symbol literal, got #{name} (use :name not a variable)" %}
+      {% end %}
       %provider = Di.get_provider?(Di::Registry.key({{ type }}.name, {{ name.id.stringify }}))
     {% else %}
       %provider = Di.get_provider?({{ type }}.name)
