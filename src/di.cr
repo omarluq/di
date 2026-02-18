@@ -8,6 +8,24 @@ module Di
   # Named scope references for health checks.
   @@scopes = {} of Symbol => Scope
 
+  # Resolution chain for circular dependency detection.
+  @@resolution_chain = [] of String
+
+  # Track resolution chain to detect circular dependencies at runtime.
+  # Yields to block. Raises CircularDependency if type is already in chain.
+  def self.push_resolution(type_name : String, &)
+    if @@resolution_chain.includes?(type_name)
+      chain = @@resolution_chain + [type_name]
+      raise CircularDependency.new(chain)
+    end
+    @@resolution_chain << type_name
+    begin
+      yield
+    ensure
+      @@resolution_chain.pop
+    end
+  end
+
   # Returns the root registry.
   def self.registry : Registry
     @@registry
@@ -214,6 +232,7 @@ module Di
     @@registry.clear
     @@scope_stack.clear
     @@scopes.clear
+    @@resolution_chain.clear
   end
 
   # Build a root scope wrapper around the registry for scope parent chains.

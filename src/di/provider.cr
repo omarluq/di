@@ -29,10 +29,18 @@ module Di
       def initialize(@factory : -> T, @transient : Bool = false)
       end
 
-      # Type-safe resolve — returns exactly T.
+      # Type-safe resolve with circular dependency guard.
       def resolve_typed : T
         return @factory.call if @transient
-        @instance ||= @factory.call
+        if inst = @instance
+          return inst
+        end
+        result = uninitialized T
+        Di.push_resolution(T.name) do
+          result = @factory.call
+          @instance = result
+        end
+        result
       end
 
       def transient? : Bool
@@ -51,18 +59,15 @@ module Di
       # Call .shutdown on the cached instance if it responds to it.
       def shutdown_instance : Nil
         return if @transient
-        if inst = @instance
-          inst.shutdown if inst.responds_to?(:shutdown)
-        end
+        return unless inst = @instance
+        inst.shutdown if inst.responds_to?(:shutdown)
       end
 
       # Call .healthy? on the cached instance if it responds to it.
       def check_health : Bool?
-        if inst = @instance
-          if inst.responds_to?(:healthy?)
-            inst.healthy?
-          end
-        end
+        return unless inst = @instance
+        return unless inst.responds_to?(:healthy?)
+        inst.healthy?
       end
     end
   end
