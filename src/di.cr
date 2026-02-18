@@ -46,17 +46,17 @@ module Di
     end
   end
 
-  # Returns the root registry.
+  # :nodoc: Internal API for testing/debugging.
   def self.registry : Registry
     @@registry
   end
 
-  # Returns the active scope, or nil if at root level.
+  # :nodoc: Internal API for testing/debugging.
   def self.current_scope : Scope?
     scope_stack.last?
   end
 
-  # Returns the named scope map for the current fiber.
+  # :nodoc: Internal API for testing/debugging.
   def self.scopes : Hash(Symbol, Scope)
     scope_map
   end
@@ -90,14 +90,7 @@ module Di
     end
   end
 
-  # Runtime resolve by type class. Use inside factory blocks at top-level
-  # where the `Di.invoke` macro is not available due to Crystal parse ordering.
-  #
-  # Example:
-  # ```
-  # Di.provide { A.new }
-  # Di.provide { B.new(Di.get(A)) }
-  # ```
+  # :nodoc: Internal API. Use `Di.provide(Dep) { |dep| ... }` instead.
   def self.get(type : T.class) : T forall T
     get_provider(T.name).as(Provider::Instance(T)).resolve_typed
   end
@@ -149,69 +142,93 @@ module Di
     end
   end
 
-  # Auto-wire a service by type (no block).
+  # Register a service provider.
   #
-  # Inspects the type's `initialize` method arguments at compile time and
-  # resolves each from the container. All arguments must have type restrictions.
+  # No block (auto-wire):
+  # - `Di.provide UserService`
+  # - `Di.provide UserService, as: :primary`
   #
-  # Example:
-  # ```
-  # Di.provide UserService
-  # Di.provide UserService, transient: true
-  # Di.provide UserService, as: :primary
-  # ```
-  macro provide(type, *, as _name = nil, transient _transient = false)
-    {% init_method = type.resolve.methods.find { |method| method.name == "initialize" } %}
-    {% if init_method %}
-      {% for arg in init_method.args %}
-        {% if arg.restriction.nil? %}
-          {% raise "Di.provide auto-wire requires type restriction on argument '#{arg.name}' in #{type}#initialize" %}
-        {% end %}
+  # Block forms:
+  # - `Di.provide { Database.new(url) }`
+  # - `Di.provide(A) { |a| B.new(a) }`
+  # - `Di.provide(A, B) { |a, b| C.new(a, b) }`
+  #
+  # With dependency types, each is resolved and passed to block arguments in order.
+  # This works at top-level without macro-order issues.
+  macro provide(*deps, as _name = nil, transient _transient = false, &block)
+    {% if block.is_a?(Nop) %}
+      {% if deps.size != 1 %}
+        {% raise "Di.provide auto-wire requires exactly 1 type argument when no block is given, got #{deps.size}" %}
       {% end %}
-      %factory = -> {
-        {{ type }}.new(
-          {% for arg in init_method.args %}
-            {{ arg.name }}: Di.invoke({{ arg.restriction }}),
+      {% type = deps[0] %}
+      {% init_method = type.resolve.methods.find { |method| method.name == "initialize" } %}
+      {% if init_method %}
+        {% for arg in init_method.args %}
+          {% if arg.restriction.nil? %}
+            {% raise "Di.provide auto-wire requires type restriction on argument '#{arg.name}' in #{type}#initialize" %}
           {% end %}
-        )
-      }
-    {% else %}
-      %factory = -> { {{ type }}.new }
-    {% end %}
-    {% if _name %}
-      {% unless _name.is_a?(SymbolLiteral) %}
-        {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+        {% end %}
+        %factory = -> {
+          {{ type }}.new(
+            {% for arg in init_method.args %}
+              {{ arg.name }}: Di.invoke({{ arg.restriction }}),
+            {% end %}
+          )
+        }
+      {% else %}
+        %factory = -> { {{ type }}.new }
       {% end %}
-      %key = Di::Registry.key({{ type }}.name, {{ _name.id.stringify }})
-    {% else %}
-      %key = {{ type }}.name
-    {% end %}
-    Di.register_provider(%key, Di::Provider::Instance({{ type }}).new(%factory, transient: {{ _transient }}))
-  end
-
-  # Register a service provider with a factory block.
-  #
-  # The block's return type is inferred at compile time via typeof.
-  # The provider stores the factory and manages singleton caching by default.
-  #
-  # Example:
-  # ```
-  # Di.provide { Database.new(ENV["DATABASE_URL"]) }
-  # Di.provide(as: :primary) { Database.new(ENV["PRIMARY_URL"]) }
-  # ```
-  #
-  # Raises `Di::AlreadyRegistered` if the type+name pair is already registered.
-  macro provide(*, as _name = nil, transient _transient = false, &block)
-    %factory = -> { {{ block.body }} }
-    {% if _name %}
-      {% unless _name.is_a?(SymbolLiteral) %}
-        {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+      {% if _name %}
+        {% unless _name.is_a?(SymbolLiteral) %}
+          {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+        {% end %}
+        %key = Di::Registry.key({{ type }}.name, {{ _name.id.stringify }})
+      {% else %}
+        %key = {{ type }}.name
       {% end %}
-      %key = Di::Registry.key(typeof({{ block.body }}).name, {{ _name.id.stringify }})
+      Di.register_provider(%key, Di::Provider::Instance({{ type }}).new(%factory, transient: {{ _transient }}))
     {% else %}
-      %key = typeof({{ block.body }}).name
+      {% if deps.empty? && block.args.size > 0 %}
+        {% raise "Di.provide block arguments require dependency types: Di.provide(Type1, ...) { |...| ... }" %}
+      {% end %}
+      {% if !deps.empty? && block.args.size != deps.size %}
+        {% raise "Di.provide block expects #{deps.size} argument(s) for #{deps.size} dependency type(s), got #{block.args.size}" %}
+      {% end %}
+      {% if deps.empty? %}
+        %factory = -> { {{ block.body }} }
+        {% if _name %}
+          {% unless _name.is_a?(SymbolLiteral) %}
+            {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+          {% end %}
+          %key = Di::Registry.key(typeof({{ block.body }}).name, {{ _name.id.stringify }})
+        {% else %}
+          %key = typeof({{ block.body }}).name
+        {% end %}
+        Di.register_provider(%key, Di::Provider::Instance(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
+      {% else %}
+        %injector = -> (
+          {% for dep, i in deps %}
+            {{ block.args[i] }} : {{ dep }},
+          {% end %}
+        ) { {{ block.body }} }
+        %factory = -> {
+          %injector.call(
+            {% for dep in deps %}
+              Di.get_provider({{ dep }}.name).as(Di::Provider::Instance({{ dep }})).resolve_typed,
+            {% end %}
+          )
+        }
+        {% if _name %}
+          {% unless _name.is_a?(SymbolLiteral) %}
+            {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+          {% end %}
+          %key = Di::Registry.key(typeof(%factory.call).name, {{ _name.id.stringify }})
+        {% else %}
+          %key = typeof(%factory.call).name
+        {% end %}
+        Di.register_provider(%key, Di::Provider::Instance(typeof(%factory.call)).new(%factory, transient: {{ _transient }}))
+      {% end %}
     {% end %}
-    Di.register_provider(%key, Di::Provider::Instance(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
   end
 
   # Create a named scope with parent inheritance.
