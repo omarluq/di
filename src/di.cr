@@ -5,8 +5,8 @@ module Di
   # Fiber-local scope stacks for concurrent isolation.
   @@fiber_scope_stacks = {} of Fiber => Array(Scope)
 
-  # Named scope references for health checks.
-  @@scopes = {} of Symbol => Scope
+  # Fiber-local named scope map for health checks (concurrent-safe).
+  @@fiber_scope_maps = {} of Fiber => Hash(Symbol, Scope)
 
   # Fiber-local resolution chains for circular dependency detection.
   @@fiber_resolution_chains = {} of Fiber => Array(String)
@@ -14,6 +14,11 @@ module Di
   # Returns the scope stack for the current fiber.
   private def self.scope_stack : Array(Scope)
     @@fiber_scope_stacks[Fiber.current] ||= [] of Scope
+  end
+
+  # Returns the named scope map for the current fiber.
+  private def self.scope_map : Hash(Symbol, Scope)
+    @@fiber_scope_maps[Fiber.current] ||= {} of Symbol => Scope
   end
 
   # Returns the resolution chain for the current fiber.
@@ -46,9 +51,9 @@ module Di
     scope_stack.last?
   end
 
-  # Returns the named scope map (for health checks).
+  # Returns the named scope map for the current fiber.
   def self.scopes : Hash(Symbol, Scope)
-    @@scopes
+    scope_map
   end
 
   # Register a provider in the current scope (or root registry).
@@ -218,8 +223,9 @@ module Di
   def self.scope(name : Symbol, &)
     parent = current_scope
     child = Scope.new(name, parent: parent || root_scope)
-    previous_scope = @@scopes[name]?
-    @@scopes[name] = child
+    map = scope_map
+    previous_scope = map[name]?
+    map[name] = child
     scope_stack.push(child)
     begin
       yield
@@ -227,9 +233,9 @@ module Di
       shutdown_scope(child)
       scope_stack.pop
       if previous_scope
-        @@scopes[name] = previous_scope
+        map[name] = previous_scope
       else
-        @@scopes.delete(name)
+        map.delete(name)
       end
     end
   end
@@ -258,9 +264,9 @@ module Di
   # Check health of all resolved singletons in a named scope.
   #
   # Includes inherited services from parent scopes.
-  # Raises `Di::ScopeNotFound` if the scope is not active.
+  # Raises `Di::ScopeNotFound` if the scope is not active in the current fiber.
   def self.healthy?(scope_name : Symbol) : Hash(String, Bool)
-    scope = @@scopes[scope_name]? || raise ScopeNotFound.new(scope_name.to_s)
+    scope = scope_map[scope_name]? || raise ScopeNotFound.new(scope_name.to_s)
     collect_scope_health(scope)
   end
 
@@ -274,7 +280,7 @@ module Di
     end
     @@registry.clear
     @@fiber_scope_stacks.clear
-    @@scopes.clear
+    @@fiber_scope_maps.clear
     @@fiber_resolution_chains.clear
   end
 

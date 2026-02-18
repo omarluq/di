@@ -48,6 +48,34 @@ describe "Fiber isolation" do
       {result_a, result_b}.should contain({"a", "a"})
       {result_a, result_b}.should contain({"b", "b"})
     end
+
+    it "isolates same-name scopes across concurrent fibers" do
+      results = Channel({String, String}).new(2)
+
+      spawn do
+        Di.scope(:req) do
+          Di.provide { ConcurrencyService.new("fiber1") }
+          Fiber.yield
+          svc = Di.invoke(ConcurrencyService)
+          results.send({"fiber1", svc.scope_id})
+        end
+      end
+
+      spawn do
+        Di.scope(:req) do
+          Di.provide { ConcurrencyService.new("fiber2") }
+          Fiber.yield
+          svc = Di.invoke(ConcurrencyService)
+          results.send({"fiber2", svc.scope_id})
+        end
+      end
+
+      r1 = results.receive
+      r2 = results.receive
+
+      {r1, r2}.should contain({"fiber1", "fiber1"})
+      {r1, r2}.should contain({"fiber2", "fiber2"})
+    end
   end
 
   describe "resolution chain" do
