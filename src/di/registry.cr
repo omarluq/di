@@ -1,0 +1,72 @@
+module Di
+  # Internal registry for storing providers and tracking shutdown order.
+  # Uses a string key format: "TypeName" for default, "TypeName/name" for named providers.
+  class Registry
+    @providers = {} of String => ProviderBase
+    @order = [] of String
+
+    # Register a provider with the given key.
+    # Raises AlreadyRegistered if the key already exists.
+    def register(key : String, provider : ProviderBase) : Nil
+      raise AlreadyRegistered.new(*parse_key(key)) if @providers.has_key?(key)
+      @providers[key] = provider
+      @order << key
+    end
+
+    # Get a provider by key, or nil if not registered.
+    def get?(key : String) : ProviderBase?
+      @providers[key]?
+    end
+
+    # Get a provider by key, raising ServiceNotFound if not registered.
+    def get(key : String) : ProviderBase
+      @providers[key]? || raise ServiceNotFound.new(*parse_key(key))
+    end
+
+    # Check if a provider is registered for the given key.
+    def registered?(key : String) : Bool
+      @providers.has_key?(key)
+    end
+
+    # Return all registered keys in registration order.
+    def order : Array(String)
+      @order.dup
+    end
+
+    # Return all registered keys in reverse order (for shutdown).
+    def reverse_order : Array(String)
+      @order.reverse
+    end
+
+    # Clear all providers and reset order.
+    def clear : Nil
+      @providers.clear
+      @order.clear
+    end
+
+    # Iterate over all providers with their keys.
+    def each(& : String, ProviderBase ->)
+      @providers.each { |k, v| yield k, v }
+    end
+
+    # Number of registered providers.
+    def size : Int32
+      @providers.size
+    end
+
+    # Build a registry key from type name and optional service name.
+    def self.key(type_name : String, service_name : String? = nil) : String
+      service_name ? "#{type_name}/#{service_name}" : type_name
+    end
+
+    # Parse a registry key into (type_name, service_name) tuple.
+    private def parse_key(key : String) : {String, String?}
+      if key.includes?('/')
+        parts = key.split('/', 2)
+        {parts[0], parts[1]}
+      else
+        {key, nil}
+      end
+    end
+  end
+end
