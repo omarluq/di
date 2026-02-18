@@ -24,6 +24,13 @@ private class ScopeParentService
   end
 end
 
+private class ShadowService
+  getter value : String
+
+  def initialize(@value : String)
+  end
+end
+
 describe "Di.scope" do
   describe "provider registration" do
     it "registers providers in the scope" do
@@ -61,16 +68,16 @@ describe "Di.scope" do
       end
     end
 
-    it "shadows parent provider locally" do
-      Di.provide { ScopeParentService.new }
+    it "shadows parent provider with same-key override" do
+      Di.provide { ShadowService.new("root") }
 
       Di.scope(:test) do
-        # Override in scope
-        Di.provide { ScopeBlockService.new(99) }
+        Di.provide { ShadowService.new("scope") }
+        Di.invoke(ShadowService).value.should eq("scope")
       end
 
-      # Parent still has original
-      Di.invoke(ScopeParentService).should be_a(ScopeParentService)
+      # Root provider unchanged after scope exits
+      Di.invoke(ShadowService).value.should eq("root")
     end
   end
 
