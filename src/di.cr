@@ -26,6 +26,37 @@ module Di
     Di.registry.register(%key, Di::Provider(typeof({{ block.body }})).new(%factory))
   end
 
+  # Resolve a service by type.
+  #
+  # Returns the instance as exactly `T` — fully typed, no casting.
+  # Singleton providers return the cached instance; transient providers
+  # create a new instance on every call.
+  #
+  # Example:
+  # ```
+  # db = Di.invoke(Database)
+  # ```
+  #
+  # Raises `Di::ServiceNotFound` if the type is not registered.
+  macro invoke(type)
+    Di.registry.get({{ type }}.name).as(Di::Provider({{ type }})).resolve_typed
+  end
+
+  # Resolve a service by type, returning nil if not registered.
+  #
+  # Returns `T?` — the instance or nil. Does not raise.
+  #
+  # Example:
+  # ```
+  # db = Di.invoke?(Database) # => Database | Nil
+  # ```
+  macro invoke?(type)
+    %provider = Di.registry.get?({{ type }}.name)
+    if %provider
+      %provider.as(Di::Provider({{ type }})).resolve_typed
+    end
+  end
+
   # Clear all providers (test helper).
   #
   # Resets the container to a clean state. Primarily for use in specs.
