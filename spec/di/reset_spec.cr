@@ -30,10 +30,10 @@ describe "Di.reset!" do
     Di.registry.registered?("ResetTestService").should be_true
   end
 
-  it "raises ScopeError when called inside an active scope" do
+  it "raises ScopeError when called while scopes are active" do
     Di.provide { ResetTestService.new }
 
-    expect_raises(Di::ScopeError, /inside an active scope/) do
+    expect_raises(Di::ScopeError, /while scopes are active/) do
       Di.scope(:test) do
         Di.reset!
       end

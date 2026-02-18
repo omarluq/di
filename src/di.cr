@@ -7,6 +7,9 @@ module Di
   # Mutex protecting fiber-local state maps for multi-threaded access.
   @@fiber_state_mutex = Mutex.new
 
+  # Global count of active scopes across all fibers.
+  @@global_scope_count = 0
+
   # Fiber-local scope stacks for concurrent isolation.
   @@fiber_scope_stacks = {} of Fiber => Array(Scope)
 
@@ -59,6 +62,11 @@ module Di
   # :nodoc: Internal API for testing/debugging.
   def self.scopes : Hash(Symbol, Scope)
     scope_map
+  end
+
+  # Returns true if any fiber has an active scope.
+  private def self.global_scope_active? : Bool
+    @@fiber_state_mutex.synchronize { @@global_scope_count > 0 }
   end
 
   # Register a provider in the current scope (or root registry).
@@ -251,11 +259,13 @@ module Di
     previous_scope = map[name]?
     map[name] = child
     scope_stack.push(child)
+    @@fiber_state_mutex.synchronize { @@global_scope_count += 1 }
     begin
       yield
     ensure
       errors = shutdown_scope(child)
       scope_stack.pop
+      @@fiber_state_mutex.synchronize { @@global_scope_count -= 1 }
       if previous_scope
         map[name] = previous_scope
       else
@@ -270,10 +280,10 @@ module Di
   #
   # Calls `.shutdown` on services that respond to it. Transient services
   # and services without `.shutdown` are skipped.
-  # Raises `Di::ScopeError` if called inside an active scope.
+  # Raises `Di::ScopeError` if any scope is active in any fiber.
   def self.shutdown! : Nil
-    if current_scope
-      raise ScopeError.new("Cannot call Di.shutdown! inside an active scope")
+    if global_scope_active?
+      raise ScopeError.new("Cannot call Di.shutdown! while scopes are active")
     end
     errors = [] of Exception
     registry.reverse_order.each do |key|
@@ -309,16 +319,17 @@ module Di
   # Clear all providers and scopes (test helper).
   #
   # Resets the container to a clean state. Primarily for use in specs.
-  # Raises `Di::ScopeError` if called inside an active scope.
+  # Raises `Di::ScopeError` if any scope is active in any fiber.
   def self.reset! : Nil
-    if current_scope
-      raise ScopeError.new("Cannot call Di.reset! inside an active scope")
+    if global_scope_active?
+      raise ScopeError.new("Cannot call Di.reset! while scopes are active")
     end
     @@registry.clear
     @@fiber_state_mutex.synchronize do
       @@fiber_scope_stacks.clear
       @@fiber_scope_maps.clear
       @@fiber_resolution_chains.clear
+      @@global_scope_count = 0
     end
   end
 

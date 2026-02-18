@@ -131,4 +131,57 @@ describe "Fiber isolation" do
       err_b.should be_nil
     end
   end
+
+  describe "global scope guard" do
+    it "blocks reset! while scope active in another fiber" do
+      ready = Channel(Nil).new
+      done = Channel(Exception?).new
+
+      spawn do
+        Di.scope(:cross_fiber) do
+          ready.send(nil)
+          Fiber.yield
+          # Hold scope open
+          sleep 10.milliseconds
+        end
+        done.send(nil)
+      rescue ex
+        done.send(ex)
+      end
+
+      ready.receive # Wait for scope to be active
+
+      expect_raises(Di::ScopeError, /while scopes are active/) do
+        Di.reset!
+      end
+
+      done.receive.should be_nil
+    end
+
+    it "blocks shutdown! while scope active in another fiber" do
+      ready = Channel(Nil).new
+      done = Channel(Exception?).new
+
+      Di.provide { ConcurrencyService.new("test") }
+
+      spawn do
+        Di.scope(:cross_fiber_shutdown) do
+          ready.send(nil)
+          Fiber.yield
+          sleep 10.milliseconds
+        end
+        done.send(nil)
+      rescue ex
+        done.send(ex)
+      end
+
+      ready.receive
+
+      expect_raises(Di::ScopeError, /while scopes are active/) do
+        Di.shutdown!
+      end
+
+      done.receive.should be_nil
+    end
+  end
 end
