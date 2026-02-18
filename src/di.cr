@@ -8,6 +8,43 @@ module Di
     @@registry
   end
 
+  # Auto-wire a service by type (no block).
+  #
+  # Inspects the type's `initialize` method arguments at compile time and
+  # resolves each from the container. All arguments must have type restrictions.
+  #
+  # Example:
+  # ```
+  # Di.provide UserService
+  # Di.provide UserService, transient: true
+  # Di.provide UserService, as: :primary
+  # ```
+  macro provide(type, *, as _name = nil, transient _transient = false)
+    {% init_method = type.resolve.methods.find { |method| method.name == "initialize" } %}
+    {% if init_method %}
+      {% for arg in init_method.args %}
+        {% if arg.restriction.nil? %}
+          {% raise "Di.provide auto-wire requires type restriction on argument '#{arg.name}' in #{type}#initialize" %}
+        {% end %}
+      {% end %}
+      %factory = -> {
+        {{ type }}.new(
+          {% for arg in init_method.args %}
+            {{ arg.name }}: Di.invoke({{ arg.restriction }}),
+          {% end %}
+        )
+      }
+    {% else %}
+      %factory = -> { {{ type }}.new }
+    {% end %}
+    {% if _name %}
+      %key = Di::Registry.key({{ type }}.name, {{ _name.id.stringify }})
+    {% else %}
+      %key = {{ type }}.name
+    {% end %}
+    Di.registry.register(%key, Di::Provider::Instance({{ type }}).new(%factory, transient: {{ _transient }}))
+  end
+
   # Register a service provider with a factory block.
   #
   # The block's return type is inferred at compile time via typeof.
@@ -20,7 +57,7 @@ module Di
   # ```
   #
   # Raises `Di::AlreadyRegistered` if the type+name pair is already registered.
-  macro provide(as _name = nil, transient _transient = false, &block)
+  macro provide(*, as _name = nil, transient _transient = false, &block)
     %factory = -> { {{ block.body }} }
     {% if _name %}
       %key = Di::Registry.key(typeof({{ block.body }}).name, {{ _name.id.stringify }})
