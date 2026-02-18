@@ -206,6 +206,7 @@ module Di
   def self.scope(name : Symbol, &)
     parent = current_scope
     child = Scope.new(name, parent: parent || root_scope)
+    previous_scope = @@scopes[name]?
     @@scopes[name] = child
     scope_stack.push(child)
     begin
@@ -213,7 +214,11 @@ module Di
     ensure
       shutdown_scope(child)
       scope_stack.pop
-      @@scopes.delete(name)
+      if previous_scope
+        @@scopes[name] = previous_scope
+      else
+        @@scopes.delete(name)
+      end
     end
   end
 

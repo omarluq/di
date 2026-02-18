@@ -88,6 +88,22 @@ describe "Di.scope" do
         end
       end
     end
+
+    it "restores outer scope map entry when same-name inner scope exits" do
+      Di.scope(:req) do
+        Di.provide { ScopeBlockService.new(1) }
+
+        Di.scope(:req) do
+          Di.provide { ScopeShutdownService.new(2) }
+        end
+
+        # Outer :req scope should still be accessible for health checks
+        Di.scopes[:req]?.should_not be_nil
+        Di.invoke(ScopeBlockService).id.should eq(1)
+      end
+
+      Di.scopes[:req]?.should be_nil
+    end
   end
 
   describe "shutdown" do
