@@ -2,27 +2,37 @@ module Di
   # Module-level registry storing root scope providers.
   @@registry = Registry.new
 
-  # Active scope stack for nested scope support.
-  @@scope_stack = [] of Scope
+  # Fiber-local scope stacks for concurrent isolation.
+  @@fiber_scope_stacks = {} of Fiber => Array(Scope)
 
   # Named scope references for health checks.
   @@scopes = {} of Symbol => Scope
 
-  # Resolution chain for circular dependency detection.
-  @@resolution_chain = [] of String
+  # Fiber-local resolution chains for circular dependency detection.
+  @@fiber_resolution_chains = {} of Fiber => Array(String)
+
+  # Returns the scope stack for the current fiber.
+  private def self.scope_stack : Array(Scope)
+    @@fiber_scope_stacks[Fiber.current] ||= [] of Scope
+  end
+
+  # Returns the resolution chain for the current fiber.
+  private def self.resolution_chain : Array(String)
+    @@fiber_resolution_chains[Fiber.current] ||= [] of String
+  end
 
   # Track resolution chain to detect circular dependencies at runtime.
   # Yields to block. Raises CircularDependency if type is already in chain.
   def self.push_resolution(type_name : String, &)
-    if @@resolution_chain.includes?(type_name)
-      chain = @@resolution_chain + [type_name]
-      raise CircularDependency.new(chain)
+    chain = resolution_chain
+    if chain.includes?(type_name)
+      raise CircularDependency.new(chain + [type_name])
     end
-    @@resolution_chain << type_name
+    chain << type_name
     begin
       yield
     ensure
-      @@resolution_chain.pop
+      chain.pop
     end
   end
 
@@ -33,7 +43,7 @@ module Di
 
   # Returns the active scope, or nil if at root level.
   def self.current_scope : Scope?
-    @@scope_stack.last?
+    scope_stack.last?
   end
 
   # Returns the named scope map (for health checks).
@@ -197,12 +207,12 @@ module Di
     parent = current_scope
     child = Scope.new(name, parent: parent || root_scope)
     @@scopes[name] = child
-    @@scope_stack.push(child)
+    scope_stack.push(child)
     begin
       yield
     ensure
       shutdown_scope(child)
-      @@scope_stack.pop
+      scope_stack.pop
       @@scopes.delete(name)
     end
   end
@@ -242,9 +252,9 @@ module Di
   # Resets the container to a clean state. Primarily for use in specs.
   def self.reset! : Nil
     @@registry.clear
-    @@scope_stack.clear
+    @@fiber_scope_stacks.clear
     @@scopes.clear
-    @@resolution_chain.clear
+    @@fiber_resolution_chains.clear
   end
 
   # Build a root scope wrapper around the registry for scope parent chains.
