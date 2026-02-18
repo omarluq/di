@@ -25,6 +25,15 @@ private class NoHealthService
   end
 end
 
+private class ExplodingHealthService
+  def initialize
+  end
+
+  def healthy? : Bool
+    raise "probe failure"
+  end
+end
+
 describe "Di.healthy?" do
   describe "root scope" do
     it "returns health for services that implement healthy?" do
@@ -56,6 +65,14 @@ describe "Di.healthy?" do
 
     it "returns empty hash when no services registered" do
       Di.healthy?.should be_empty
+    end
+
+    it "returns false when health probe raises" do
+      Di.provide { ExplodingHealthService.new }
+      Di.invoke(ExplodingHealthService)
+
+      result = Di.healthy?
+      result["ExplodingHealthService"].should be_false
     end
   end
 

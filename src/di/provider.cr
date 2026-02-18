@@ -64,10 +64,13 @@ module Di
       end
 
       # Call .healthy? on the cached instance if it responds to it.
+      # Returns false if the health probe raises an exception.
       def check_health : Bool?
         return unless inst = @instance
         return unless inst.responds_to?(:healthy?)
         inst.healthy?
+      rescue
+        false
       end
     end
   end
