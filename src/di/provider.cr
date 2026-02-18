@@ -6,6 +6,17 @@ module Di
     abstract class Base
       abstract def transient? : Bool
       abstract def reset! : Nil
+
+      # Attempt to call .shutdown on the cached instance (if any).
+      # No-op for transient providers or unresolved singletons.
+      def shutdown_instance : Nil
+      end
+
+      # Attempt to call .healthy? on the cached instance.
+      # Returns nil if not resolved, transient, or service doesn't respond.
+      def check_health : Bool?
+        nil
+      end
     end
 
     # Generic provider that stores a typed factory and optional singleton cache.
@@ -35,6 +46,23 @@ module Di
 
       def reset! : Nil
         @instance = nil
+      end
+
+      # Call .shutdown on the cached instance if it responds to it.
+      def shutdown_instance : Nil
+        return if @transient
+        if inst = @instance
+          inst.shutdown if inst.responds_to?(:shutdown)
+        end
+      end
+
+      # Call .healthy? on the cached instance if it responds to it.
+      def check_health : Bool?
+        if inst = @instance
+          if inst.responds_to?(:healthy?)
+            inst.healthy?
+          end
+        end
       end
     end
   end

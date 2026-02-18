@@ -1,11 +1,53 @@
 module Di
-  # Module-level registry storing all providers.
-  # This is the root scope container.
+  # Module-level registry storing root scope providers.
   @@registry = Registry.new
 
-  # Returns the root registry (for internal use).
+  # Active scope stack for nested scope support.
+  @@scope_stack = [] of Scope
+
+  # Named scope references for health checks.
+  @@scopes = {} of Symbol => Scope
+
+  # Returns the root registry.
   def self.registry : Registry
     @@registry
+  end
+
+  # Returns the active scope, or nil if at root level.
+  def self.current_scope : Scope?
+    @@scope_stack.last?
+  end
+
+  # Returns the named scope map (for health checks).
+  def self.scopes : Hash(Symbol, Scope)
+    @@scopes
+  end
+
+  # Register a provider in the current scope (or root registry).
+  def self.register_provider(key : String, provider : Provider::Base) : Nil
+    if scope = current_scope
+      scope.register(key, provider)
+    else
+      registry.register(key, provider)
+    end
+  end
+
+  # Get a provider from the current scope chain (or root registry).
+  def self.get_provider(key : String) : Provider::Base
+    if scope = current_scope
+      scope.get(key)
+    else
+      registry.get(key)
+    end
+  end
+
+  # Get a provider from the current scope chain, returning nil if not found.
+  def self.get_provider?(key : String) : Provider::Base?
+    if scope = current_scope
+      scope.get?(key)
+    else
+      registry.get?(key)
+    end
   end
 
   # Auto-wire a service by type (no block).
@@ -42,7 +84,7 @@ module Di
     {% else %}
       %key = {{ type }}.name
     {% end %}
-    Di.registry.register(%key, Di::Provider::Instance({{ type }}).new(%factory, transient: {{ _transient }}))
+    Di.register_provider(%key, Di::Provider::Instance({{ type }}).new(%factory, transient: {{ _transient }}))
   end
 
   # Register a service provider with a factory block.
@@ -64,7 +106,7 @@ module Di
     {% else %}
       %key = typeof({{ block.body }}).name
     {% end %}
-    Di.registry.register(%key, Di::Provider::Instance(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
+    Di.register_provider(%key, Di::Provider::Instance(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
   end
 
   # Resolve a service by type.
@@ -82,9 +124,9 @@ module Di
   # Raises `Di::ServiceNotFound` if the type is not registered.
   macro invoke(type, name = nil)
     {% if name %}
-      Di.registry.get(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider::Instance({{ type }})).resolve_typed
+      Di.get_provider(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider::Instance({{ type }})).resolve_typed
     {% else %}
-      Di.registry.get({{ type }}.name).as(Di::Provider::Instance({{ type }})).resolve_typed
+      Di.get_provider({{ type }}.name).as(Di::Provider::Instance({{ type }})).resolve_typed
     {% end %}
   end
 
@@ -99,20 +141,78 @@ module Di
   # ```
   macro invoke?(type, name = nil)
     {% if name %}
-      %provider = Di.registry.get?(Di::Registry.key({{ type }}.name, {{ name.id.stringify }}))
+      %provider = Di.get_provider?(Di::Registry.key({{ type }}.name, {{ name.id.stringify }}))
     {% else %}
-      %provider = Di.registry.get?({{ type }}.name)
+      %provider = Di.get_provider?({{ type }}.name)
     {% end %}
     if %provider
       %provider.as(Di::Provider::Instance({{ type }})).resolve_typed
     end
   end
 
-  # Clear all providers (test helper).
+  # Create a named scope with parent inheritance.
+  #
+  # Providers registered inside the block are scoped. The scope inherits
+  # all providers from the parent (or root if at top level). On block exit,
+  # shutdown is called on all scope-local singleton providers.
+  #
+  # Example:
+  # ```
+  # Di.scope(:request) do
+  #   Di.provide { CurrentUser.from_token(token) }
+  #   user = Di.invoke(CurrentUser)
+  # end
+  # ```
+  def self.scope(name : Symbol, &)
+    parent = current_scope
+    child = Scope.new(name, parent: parent || root_scope)
+    @@scopes[name] = child
+    @@scope_stack.push(child)
+    begin
+      yield
+    ensure
+      shutdown_scope(child)
+      @@scope_stack.pop
+      @@scopes.delete(name)
+    end
+  end
+
+  # Shut down all singleton providers in reverse registration order.
+  #
+  # Calls `.shutdown` on services that respond to it. Transient services
+  # and services without `.shutdown` are skipped.
+  def self.shutdown! : Nil
+    registry.reverse_order.each do |key|
+      provider = registry.get?(key)
+      next unless provider
+      provider.shutdown_instance
+    end
+    registry.clear
+  end
+
+  # Clear all providers and scopes (test helper).
   #
   # Resets the container to a clean state. Primarily for use in specs.
   def self.reset! : Nil
     @@registry.clear
+    @@scope_stack.clear
+    @@scopes.clear
+  end
+
+  # Build a root scope wrapper around the registry for scope parent chains.
+  private def self.root_scope : Scope
+    root = Scope.new(:root)
+    registry.each { |key, provider| root.register(key, provider) }
+    root
+  end
+
+  # Shutdown providers in a scope.
+  private def self.shutdown_scope(scope : Scope) : Nil
+    scope.reverse_order.each do |key|
+      provider = scope.get?(key)
+      next unless provider
+      provider.shutdown_instance
+    end
   end
 end
 

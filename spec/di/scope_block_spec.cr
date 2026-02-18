@@ -1,0 +1,136 @@
+require "../spec_helper"
+
+private class ScopeBlockService
+  getter id : Int32
+
+  def initialize(@id = 0)
+  end
+end
+
+private class ScopeShutdownService
+  getter id : Int32
+  property? shutdown_called : Bool = false
+
+  def initialize(@id = 0)
+  end
+
+  def shutdown
+    @shutdown_called = true
+  end
+end
+
+private class ScopeParentService
+  def initialize
+  end
+end
+
+describe "Di.scope" do
+  describe "provider registration" do
+    it "registers providers in the scope" do
+      Di.provide { ScopeParentService.new }
+
+      Di.scope(:test) do
+        Di.provide { ScopeBlockService.new(42) }
+        if scope = Di.current_scope
+          scope.local?("ScopeBlockService").should be_true
+        end
+      end
+
+      # Scope is cleaned up after block
+      Di.current_scope.should be_nil
+    end
+
+    it "does not pollute parent with scope-local providers" do
+      Di.provide { ScopeParentService.new }
+
+      Di.scope(:test) do
+        Di.provide { ScopeBlockService.new(42) }
+      end
+
+      Di.registry.registered?("ScopeBlockService").should be_false
+    end
+  end
+
+  describe "inheritance" do
+    it "inherits providers from root" do
+      Di.provide { ScopeParentService.new }
+
+      Di.scope(:test) do
+        svc = Di.invoke(ScopeParentService)
+        svc.should be_a(ScopeParentService)
+      end
+    end
+
+    it "shadows parent provider locally" do
+      Di.provide { ScopeParentService.new }
+
+      Di.scope(:test) do
+        # Override in scope
+        Di.provide { ScopeBlockService.new(99) }
+      end
+
+      # Parent still has original
+      Di.invoke(ScopeParentService).should be_a(ScopeParentService)
+    end
+  end
+
+  describe "nested scopes" do
+    it "chains through nested scopes" do
+      Di.provide { ScopeParentService.new }
+
+      Di.scope(:outer) do
+        Di.provide { ScopeBlockService.new(1) }
+
+        Di.scope(:inner) do
+          # Inherits from both outer and root
+          Di.invoke(ScopeParentService).should be_a(ScopeParentService)
+          Di.invoke(ScopeBlockService).id.should eq(1)
+        end
+      end
+    end
+  end
+
+  describe "shutdown" do
+    it "calls shutdown on scope-local services" do
+      shutdown_svc = ScopeShutdownService.new(1)
+
+      Di.scope(:test) do
+        Di.provide { shutdown_svc }
+        # Resolve to create the cached instance
+        Di.invoke(ScopeShutdownService)
+      end
+
+      shutdown_svc.shutdown_called?.should be_true
+    end
+
+    it "does not shutdown parent services" do
+      parent_svc = ScopeShutdownService.new(1)
+
+      Di.provide { parent_svc }
+
+      Di.scope(:test) do
+        # Do nothing, just create and exit scope
+      end
+
+      parent_svc.shutdown_called?.should be_false
+    end
+  end
+
+  describe "cleanup on exception" do
+    it "cleans up scope even when block raises" do
+      Di.provide { ScopeParentService.new }
+
+      begin
+        Di.scope(:test) do
+          Di.provide { ScopeBlockService.new(42) }
+          raise "Test error"
+        end
+      rescue
+        # Expected
+      end
+
+      Di.current_scope.should be_nil
+      Di.registry.registered?("ScopeBlockService").should be_false
+    end
+  end
+end
