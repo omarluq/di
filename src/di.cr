@@ -190,6 +190,23 @@ module Di
     registry.clear
   end
 
+  # Check health of all resolved singletons in the root registry.
+  #
+  # Returns a hash mapping provider keys to health status.
+  # Only includes services that respond to `.healthy?` and have been resolved.
+  def self.healthy? : Hash(String, Bool)
+    collect_health(registry)
+  end
+
+  # Check health of all resolved singletons in a named scope.
+  #
+  # Includes inherited services from parent scopes.
+  # Raises `Di::ScopeNotFound` if the scope is not active.
+  def self.healthy?(scope_name : Symbol) : Hash(String, Bool)
+    scope = @@scopes[scope_name]? || raise ScopeNotFound.new(scope_name.to_s)
+    collect_scope_health(scope)
+  end
+
   # Clear all providers and scopes (test helper).
   #
   # Resets the container to a clean state. Primarily for use in specs.
@@ -213,6 +230,30 @@ module Di
       next unless provider
       provider.shutdown_instance
     end
+  end
+
+  # Collect health from registry providers.
+  private def self.collect_health(reg : Registry) : Hash(String, Bool)
+    result = {} of String => Bool
+    reg.each do |key, provider|
+      status = provider.check_health
+      result[key] = status unless status.nil?
+    end
+    result
+  end
+
+  # Collect health from a scope, walking the parent chain.
+  private def self.collect_scope_health(scope : Scope) : Hash(String, Bool)
+    result = {} of String => Bool
+    # Walk parents first so child overrides take precedence.
+    if parent = scope.parent
+      result.merge!(collect_scope_health(parent))
+    end
+    scope.each do |key, provider|
+      status = provider.check_health
+      result[key] = status unless status.nil?
+    end
+    result
   end
 end
 
