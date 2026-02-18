@@ -15,10 +15,6 @@ private class AnotherService
 end
 
 describe "Di.provide" do
-  after_each do
-    Di.reset!
-  end
-
   describe "with explicit block" do
     it "registers a provider for the block's return type" do
       Di.provide { ProvideTestService.new(42) }

@@ -15,10 +15,6 @@ private class TransientService
 end
 
 describe "Di.invoke" do
-  after_each do
-    Di.reset!
-  end
-
   describe "with registered service" do
     it "returns the resolved instance" do
       Di.provide { InvokeTestService.new(42) }
@@ -67,10 +63,6 @@ describe "Di.invoke" do
 end
 
 describe "Di.invoke?" do
-  after_each do
-    Di.reset!
-  end
-
   describe "with registered service" do
     it "returns the resolved instance" do
       Di.provide { InvokeTestService.new(77) }
