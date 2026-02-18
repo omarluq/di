@@ -26,7 +26,7 @@ describe "Di.provide" do
       Di.provide { ProvideTestService.new(99) }
 
       provider = Di.registry.get("ProvideTestService")
-      provider.should be_a(Di::Provider(ProvideTestService))
+      provider.should be_a(Di::Provider::Instance(ProvideTestService))
     end
 
     it "raises AlreadyRegistered when registering same type twice" do

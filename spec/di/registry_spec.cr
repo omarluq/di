@@ -11,7 +11,7 @@ describe Di::Registry do
   describe "#register and #get" do
     it "round-trips a provider" do
       registry = Di::Registry.new
-      provider = Di::Provider(RegTestService).new(-> { RegTestService.new(1) })
+      provider = Di::Provider::Instance(RegTestService).new(-> { RegTestService.new(1) })
       registry.register("RegTestService", provider)
 
       result = registry.get("RegTestService")
@@ -20,8 +20,8 @@ describe Di::Registry do
 
     it "raises AlreadyRegistered on duplicate key" do
       registry = Di::Registry.new
-      provider1 = Di::Provider(RegTestService).new(-> { RegTestService.new(1) })
-      provider2 = Di::Provider(RegTestService).new(-> { RegTestService.new(2) })
+      provider1 = Di::Provider::Instance(RegTestService).new(-> { RegTestService.new(1) })
+      provider2 = Di::Provider::Instance(RegTestService).new(-> { RegTestService.new(2) })
 
       registry.register("RegTestService", provider1)
       expect_raises(Di::AlreadyRegistered, "Service already registered: RegTestService") do
@@ -47,7 +47,7 @@ describe Di::Registry do
   describe "#get?" do
     it "returns provider when registered" do
       registry = Di::Registry.new
-      provider = Di::Provider(RegTestService).new(-> { RegTestService.new })
+      provider = Di::Provider::Instance(RegTestService).new(-> { RegTestService.new })
       registry.register("RegTestService", provider)
 
       registry.get?("RegTestService").should eq(provider)
@@ -62,7 +62,7 @@ describe Di::Registry do
   describe "#registered?" do
     it "returns true for registered key" do
       registry = Di::Registry.new
-      registry.register("RegTestService", Di::Provider(RegTestService).new(-> { RegTestService.new }))
+      registry.register("RegTestService", Di::Provider::Instance(RegTestService).new(-> { RegTestService.new }))
       registry.registered?("RegTestService").should be_true
     end
 
@@ -75,8 +75,8 @@ describe Di::Registry do
   describe "#clear" do
     it "removes all providers and resets order" do
       registry = Di::Registry.new
-      registry.register("A", Di::Provider(RegTestService).new(-> { RegTestService.new }))
-      registry.register("B", Di::Provider(RegTestService).new(-> { RegTestService.new }))
+      registry.register("A", Di::Provider::Instance(RegTestService).new(-> { RegTestService.new }))
+      registry.register("B", Di::Provider::Instance(RegTestService).new(-> { RegTestService.new }))
 
       registry.size.should eq(2)
       registry.order.size.should eq(2)
@@ -90,9 +90,9 @@ describe Di::Registry do
   describe "#order and #reverse_order" do
     it "tracks registration order" do
       registry = Di::Registry.new
-      registry.register("First", Di::Provider(RegTestService).new(-> { RegTestService.new }))
-      registry.register("Second", Di::Provider(RegTestService).new(-> { RegTestService.new }))
-      registry.register("Third", Di::Provider(RegTestService).new(-> { RegTestService.new }))
+      registry.register("First", Di::Provider::Instance(RegTestService).new(-> { RegTestService.new }))
+      registry.register("Second", Di::Provider::Instance(RegTestService).new(-> { RegTestService.new }))
+      registry.register("Third", Di::Provider::Instance(RegTestService).new(-> { RegTestService.new }))
 
       registry.order.should eq(["First", "Second", "Third"])
       registry.reverse_order.should eq(["Third", "Second", "First"])
@@ -104,7 +104,7 @@ describe Di::Registry do
       registry = Di::Registry.new
       registry.size.should eq(0)
 
-      registry.register("A", Di::Provider(RegTestService).new(-> { RegTestService.new }))
+      registry.register("A", Di::Provider::Instance(RegTestService).new(-> { RegTestService.new }))
       registry.size.should eq(1)
     end
   end

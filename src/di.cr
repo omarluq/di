@@ -27,7 +27,7 @@ module Di
     {% else %}
       %key = typeof({{ block.body }}).name
     {% end %}
-    Di.registry.register(%key, Di::Provider(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
+    Di.registry.register(%key, Di::Provider::Instance(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
   end
 
   # Resolve a service by type.
@@ -45,9 +45,9 @@ module Di
   # Raises `Di::ServiceNotFound` if the type is not registered.
   macro invoke(type, name = nil)
     {% if name %}
-      Di.registry.get(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider({{ type }})).resolve_typed
+      Di.registry.get(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider::Instance({{ type }})).resolve_typed
     {% else %}
-      Di.registry.get({{ type }}.name).as(Di::Provider({{ type }})).resolve_typed
+      Di.registry.get({{ type }}.name).as(Di::Provider::Instance({{ type }})).resolve_typed
     {% end %}
   end
 
@@ -67,7 +67,7 @@ module Di
       %provider = Di.registry.get?({{ type }}.name)
     {% end %}
     if %provider
-      %provider.as(Di::Provider({{ type }})).resolve_typed
+      %provider.as(Di::Provider::Instance({{ type }})).resolve_typed
     end
   end
 

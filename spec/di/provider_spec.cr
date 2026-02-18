@@ -7,11 +7,11 @@ private class TestService
   end
 end
 
-describe Di::Provider do
+describe Di::Provider::Instance do
   describe "#resolve_typed" do
     it "returns the same instance for singleton providers" do
       call_count = 0
-      provider = Di::Provider(TestService).new(
+      provider = Di::Provider::Instance(TestService).new(
         -> { call_count += 1; TestService.new(call_count) },
         transient: false
       )
@@ -27,7 +27,7 @@ describe Di::Provider do
 
     it "returns new instances for transient providers" do
       call_count = 0
-      provider = Di::Provider(TestService).new(
+      provider = Di::Provider::Instance(TestService).new(
         -> { call_count += 1; TestService.new(call_count) },
         transient: true
       )
@@ -44,7 +44,7 @@ describe Di::Provider do
 
   describe "#resolve_typed" do
     it "returns typed result" do
-      provider = Di::Provider(TestService).new(-> { TestService.new })
+      provider = Di::Provider::Instance(TestService).new(-> { TestService.new })
       result = provider.resolve_typed
       result.should be_a(TestService)
     end
@@ -52,30 +52,30 @@ describe Di::Provider do
 
   describe "#transient?" do
     it "returns false for singleton providers" do
-      provider = Di::Provider(TestService).new(-> { TestService.new }, transient: false)
+      provider = Di::Provider::Instance(TestService).new(-> { TestService.new }, transient: false)
       provider.transient?.should be_false
     end
 
     it "returns true for transient providers" do
-      provider = Di::Provider(TestService).new(-> { TestService.new }, transient: true)
+      provider = Di::Provider::Instance(TestService).new(-> { TestService.new }, transient: true)
       provider.transient?.should be_true
     end
   end
 
   describe "#instance" do
     it "returns nil before first resolve for singleton" do
-      provider = Di::Provider(TestService).new(-> { TestService.new })
+      provider = Di::Provider::Instance(TestService).new(-> { TestService.new })
       provider.instance.should be_nil
     end
 
     it "returns cached instance after resolve for singleton" do
-      provider = Di::Provider(TestService).new(-> { TestService.new })
+      provider = Di::Provider::Instance(TestService).new(-> { TestService.new })
       resolved = provider.resolve_typed
       provider.instance.should eq(resolved)
     end
 
     it "returns nil for transient providers" do
-      provider = Di::Provider(TestService).new(-> { TestService.new }, transient: true)
+      provider = Di::Provider::Instance(TestService).new(-> { TestService.new }, transient: true)
       provider.resolve_typed
       provider.instance.should be_nil
     end
@@ -83,7 +83,7 @@ describe Di::Provider do
 
   describe "#reset!" do
     it "clears cached instance for singleton" do
-      provider = Di::Provider(TestService).new(-> { TestService.new })
+      provider = Di::Provider::Instance(TestService).new(-> { TestService.new })
       provider.resolve_typed
       provider.instance.should_not be_nil
 
@@ -93,7 +93,7 @@ describe Di::Provider do
 
     it "creates fresh instance after reset" do
       call_count = 0
-      provider = Di::Provider(TestService).new(
+      provider = Di::Provider::Instance(TestService).new(
         -> { call_count += 1; TestService.new(call_count) },
         transient: false
       )

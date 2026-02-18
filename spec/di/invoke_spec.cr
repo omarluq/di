@@ -36,7 +36,7 @@ describe "Di.invoke" do
     it "returns new instances for transient providers" do
       Di.registry.register(
         "TransientService",
-        Di::Provider(TransientService).new(-> { TransientService.new(rand(1000) + 1) }, transient: true)
+        Di::Provider::Instance(TransientService).new(-> { TransientService.new(rand(1000) + 1) }, transient: true)
       )
 
       instance1 = Di.invoke(TransientService)

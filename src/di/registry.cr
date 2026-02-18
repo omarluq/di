@@ -2,24 +2,24 @@ module Di
   # Internal registry for storing providers and tracking shutdown order.
   # Uses a string key format: "TypeName" for default, "TypeName/name" for named providers.
   class Registry
-    @providers = {} of String => ProviderBase
+    @providers = {} of String => Provider::Base
     @order = [] of String
 
     # Register a provider with the given key.
     # Raises AlreadyRegistered if the key already exists.
-    def register(key : String, provider : ProviderBase) : Nil
+    def register(key : String, provider : Provider::Base) : Nil
       raise AlreadyRegistered.new(*parse_key(key)) if @providers.has_key?(key)
       @providers[key] = provider
       @order << key
     end
 
     # Get a provider by key, or nil if not registered.
-    def get?(key : String) : ProviderBase?
+    def get?(key : String) : Provider::Base?
       @providers[key]?
     end
 
     # Get a provider by key, raising ServiceNotFound if not registered.
-    def get(key : String) : ProviderBase
+    def get(key : String) : Provider::Base
       @providers[key]? || raise ServiceNotFound.new(*parse_key(key))
     end
 
@@ -45,7 +45,7 @@ module Di
     end
 
     # Iterate over all providers with their keys.
-    def each(& : String, ProviderBase ->)
+    def each(& : String, Provider::Base ->)
       @providers.each { |k, v| yield k, v }
     end
 
