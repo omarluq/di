@@ -248,7 +248,11 @@ module Di
   #
   # Calls `.shutdown` on services that respond to it. Transient services
   # and services without `.shutdown` are skipped.
+  # Raises `Di::ScopeError` if called inside an active scope.
   def self.shutdown! : Nil
+    if current_scope
+      raise ScopeError.new("Cannot call Di.shutdown! inside an active scope")
+    end
     registry.reverse_order.each do |key|
       provider = registry.get?(key)
       next unless provider

@@ -67,4 +67,14 @@ describe "Di.shutdown!" do
 
     Di.registry.registered?("ShutdownTracker").should be_false
   end
+
+  it "raises ScopeError when called inside an active scope" do
+    Di.provide { ShutdownTracker.new(1) }
+
+    Di.scope(:inner) do
+      expect_raises(Di::ScopeError, /inside an active scope/) do
+        Di.shutdown!
+      end
+    end
+  end
 end
