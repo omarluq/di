@@ -7,6 +7,10 @@ module Di
   # Mutex protecting fiber-local state maps for multi-threaded access.
   @@fiber_state_mutex = Mutex.new
 
+  # Control-plane mutex serializing shutdown!/reset!/scope entry.
+  # Prevents concurrent shutdown calls and guards against scope-start races.
+  @@control_mutex = Mutex.new
+
   # Global count of active scopes across all fibers.
   @@global_scope_count = 0
 
@@ -281,7 +285,10 @@ module Di
     previous_scope = map[name]?
     map[name] = child
     scope_stack.push(child)
-    @@fiber_state_mutex.synchronize { @@global_scope_count += 1 }
+    # Increment under control mutex so shutdown!/reset! guards are atomic.
+    @@control_mutex.synchronize do
+      @@fiber_state_mutex.synchronize { @@global_scope_count += 1 }
+    end
     body_raised = false
     begin
       yield
@@ -291,7 +298,9 @@ module Di
     ensure
       errors = shutdown_scope(child)
       scope_stack.pop
-      @@fiber_state_mutex.synchronize { @@global_scope_count -= 1 }
+      @@control_mutex.synchronize do
+        @@fiber_state_mutex.synchronize { @@global_scope_count -= 1 }
+      end
       if previous_scope
         map[name] = previous_scope
       else
@@ -310,12 +319,19 @@ module Di
   # and services without `.shutdown` are skipped.
   # Raises `Di::ScopeError` if any scope is active in any fiber.
   def self.shutdown! : Nil
-    if global_scope_active?
-      raise ScopeError.new("Cannot call Di.shutdown! while scopes are active")
+    providers_snapshot = @@control_mutex.synchronize do
+      if @@fiber_state_mutex.synchronize { @@global_scope_count > 0 }
+        raise ScopeError.new("Cannot call Di.shutdown! while scopes are active")
+      end
+      # Capture order and clear registry atomically under control lock.
+      order = registry.reverse_order
+      snapshot = order.map { |key| {key, registry.get?(key)} }
+      registry.clear
+      snapshot
     end
+
     errors = [] of Exception
-    registry.reverse_order.each do |key|
-      provider = registry.get?(key)
+    providers_snapshot.each do |key, provider|
       next unless provider
       begin
         provider.shutdown_instance
@@ -323,7 +339,6 @@ module Di
         errors << ex
       end
     end
-    registry.clear
     raise ShutdownError.new(errors) unless errors.empty?
   end
 
@@ -350,15 +365,17 @@ module Di
   # Resets the container to a clean state. Primarily for use in specs.
   # Raises `Di::ScopeError` if any scope is active in any fiber.
   def self.reset! : Nil
-    if global_scope_active?
-      raise ScopeError.new("Cannot call Di.reset! while scopes are active")
-    end
-    @@registry.clear
-    @@fiber_state_mutex.synchronize do
-      @@fiber_scope_stacks.clear
-      @@fiber_scope_maps.clear
-      @@fiber_resolution_chains.clear
-      @@global_scope_count = 0
+    @@control_mutex.synchronize do
+      if @@fiber_state_mutex.synchronize { @@global_scope_count > 0 }
+        raise ScopeError.new("Cannot call Di.reset! while scopes are active")
+      end
+      @@registry.clear
+      @@fiber_state_mutex.synchronize do
+        @@fiber_scope_stacks.clear
+        @@fiber_scope_maps.clear
+        @@fiber_resolution_chains.clear
+        @@global_scope_count = 0
+      end
     end
   end
 

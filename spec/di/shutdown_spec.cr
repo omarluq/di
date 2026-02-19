@@ -94,10 +94,45 @@ describe "Di.shutdown!" do
     # First service was still shut down
     ShutdownTracker.order.should eq([1])
   end
+
+  it "calls each singleton shutdown exactly once under concurrent calls" do
+    AtomicShutdownTracker.reset
+    Di.provide { AtomicShutdownTracker.new }
+    Di.invoke(AtomicShutdownTracker)
+
+    done = Channel(Nil).new(3)
+    3.times do
+      spawn do
+        Di.shutdown! rescue nil
+        done.send(nil)
+      rescue
+        done.send(nil)
+      end
+    end
+
+    3.times { done.receive }
+    AtomicShutdownTracker.count.should eq(1)
+  end
 end
 
 private class FailingShutdownService
   def shutdown
     raise "shutdown failed"
+  end
+end
+
+private class AtomicShutdownTracker
+  @@count = Atomic(Int32).new(0)
+
+  def self.count
+    @@count.get
+  end
+
+  def self.reset
+    @@count.set(0)
+  end
+
+  def shutdown
+    @@count.add(1)
   end
 end
