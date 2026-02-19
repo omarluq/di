@@ -1,57 +1,66 @@
 module Di
   # Internal registry for storing providers and tracking shutdown order.
   # Uses a string key format: "TypeName" for default, "TypeName/name" for named providers.
+  # Thread-safe for multi-threaded Crystal (-Dpreview_mt).
   class Registry
     @providers = {} of String => Provider::Base
     @order = [] of String
+    @mutex = Mutex.new
 
     # Register a provider with the given key.
     # Raises AlreadyRegistered if the key already exists.
     def register(key : String, provider : Provider::Base) : Nil
-      raise AlreadyRegistered.new(*parse_key(key)) if @providers.has_key?(key)
-      @providers[key] = provider
-      @order << key
+      @mutex.synchronize do
+        raise AlreadyRegistered.new(*parse_key(key)) if @providers.has_key?(key)
+        @providers[key] = provider
+        @order << key
+      end
     end
 
     # Get a provider by key, or nil if not registered.
     def get?(key : String) : Provider::Base?
-      @providers[key]?
+      @mutex.synchronize { @providers[key]? }
     end
 
     # Get a provider by key, raising ServiceNotFound if not registered.
     def get(key : String) : Provider::Base
-      @providers[key]? || raise ServiceNotFound.new(*parse_key(key))
+      @mutex.synchronize do
+        @providers[key]? || raise ServiceNotFound.new(*parse_key(key))
+      end
     end
 
     # Check if a provider is registered for the given key.
     def registered?(key : String) : Bool
-      @providers.has_key?(key)
+      @mutex.synchronize { @providers.has_key?(key) }
     end
 
     # Return all registered keys in registration order.
     def order : Array(String)
-      @order.dup
+      @mutex.synchronize { @order.dup }
     end
 
     # Return all registered keys in reverse order (for shutdown).
     def reverse_order : Array(String)
-      @order.reverse
+      @mutex.synchronize { @order.reverse }
     end
 
     # Clear all providers and reset order.
     def clear : Nil
-      @providers.clear
-      @order.clear
+      @mutex.synchronize do
+        @providers.clear
+        @order.clear
+      end
     end
 
     # Iterate over all providers with their keys.
+    # Note: Holds mutex for the duration of iteration.
     def each(& : String, Provider::Base ->)
-      @providers.each { |k, v| yield k, v }
+      @mutex.synchronize { @providers.each { |k, v| yield k, v } }
     end
 
     # Number of registered providers.
     def size : Int32
-      @providers.size
+      @mutex.synchronize { @providers.size }
     end
 
     # Build a registry key from type name and optional service name.

@@ -70,24 +70,26 @@ module Di
 
       # Returns the cached singleton instance, or nil if not yet resolved or transient.
       def instance : T?
-        @instance
+        @mutex.synchronize { @instance }
       end
 
       def reset! : Nil
-        @instance = nil
+        @mutex.synchronize { @instance = nil }
       end
 
       # Call .shutdown on the cached instance if it responds to it.
       def shutdown_instance : Nil
         return if @transient
-        return unless inst = @instance
+        inst = @mutex.synchronize { @instance }
+        return unless inst
         inst.shutdown if inst.responds_to?(:shutdown)
       end
 
       # Call .healthy? on the cached instance if it responds to it.
       # Returns false if the health probe raises an exception.
       def check_health : Bool?
-        return unless inst = @instance
+        inst = @mutex.synchronize { @instance }
+        return unless inst
         return unless inst.responds_to?(:healthy?)
         inst.healthy?
       rescue
