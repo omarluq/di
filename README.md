@@ -47,9 +47,28 @@ Di.provide { Database.new(ENV["DATABASE_URL"]) }
 Di.provide { HttpClient.new(timeout: 30) }
 
 # Auto-wire, bare type, constructor deps resolved automatically
+# Note: Dependencies must be registered before first invocation
 Di.provide UserService
 Di.provide UserRepository
 ```
+
+### Factory with Dependencies
+
+When auto-wire isn't enough (custom construction, extra config, wrapping), declare dependency types before the block:
+
+```crystal
+# Auto-wire handles standard constructors
+Di.provide Service  # resolves Repo from Service#initialize(@repo : Repo)
+
+# Use deps+block for custom factories
+Di.provide(Repo) { |repo| Service.new(repo, timeout: 30) }
+Di.provide(Repo, Cache) { |repo, cache| Gateway.new(repo, cache, retries: 3) }
+
+# Named dependency (type + service name)
+Di.provide({Database, :primary}) { |db| ReplicaReader.new(db) }
+```
+
+Dependencies are resolved and passed to block arguments in order. The key is inferred from the block's return type.
 
 ### Resolution
 
@@ -71,6 +90,8 @@ Di.provide(as: :replica) { Database.new(ENV["REPLICA_URL"]) }
 primary = Di.invoke(Database, :primary)
 replica = Di.invoke(Database, :replica)
 ```
+
+Note: The `as:` argument must be a Symbol literal (`:primary`), not a variable.
 
 ### Transient
 
@@ -109,6 +130,21 @@ health = Di.healthy?(:request)
 # Calls shutdown on all singletons that implement it, reverse registration order
 Di.shutdown!
 ```
+
+Note: Raises `Di::ScopeError` while any scopes are active.
+
+## Error Handling
+
+| Error                    | When                                                   |
+| ------------------------ | ------------------------------------------------------ |
+| `Di::ServiceNotFound`    | Resolving a type that was never registered             |
+| `Di::CircularDependency` | Circular dependency detected during resolution         |
+| `Di::AlreadyRegistered`  | Registering the same type+name twice                   |
+| `Di::ScopeNotFound`      | `Di.healthy?(:name)` for unknown scope                 |
+| `Di::ScopeError`         | `Di.reset!` or `Di.shutdown!` while scopes are active  |
+| `Di::ShutdownError`      | One or more service shutdowns failed (aggregates errors) |
+
+Compile-time errors occur for missing type restrictions on auto-wire or non-literal symbol arguments.
 
 ## Development
 

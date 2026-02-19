@@ -36,6 +36,28 @@ private class ProvideDepC
   end
 end
 
+private class ProvideNamedDatabase
+  getter url : String
+
+  def initialize(@url : String)
+  end
+end
+
+private class ProvideNamedRepo
+  getter db : ProvideNamedDatabase
+
+  def initialize(@db : ProvideNamedDatabase)
+  end
+end
+
+private class ProvideMixedDeps
+  getter db : ProvideNamedDatabase
+  getter dep_a : ProvideDepA
+
+  def initialize(@db : ProvideNamedDatabase, @dep_a : ProvideDepA)
+  end
+end
+
 describe "Di.provide" do
   describe "with explicit block" do
     it "registers a provider for the block's return type" do
@@ -96,6 +118,25 @@ describe "Di.provide" do
       resolved = Di.invoke(ProvideDepC)
       resolved.dep_a.id.should eq(7)
       resolved.dep_b.dep.id.should eq(7)
+    end
+
+    it "supports named dependency specs with {Type, :name}" do
+      Di.provide(as: :primary) { ProvideNamedDatabase.new("postgres://primary") }
+      Di.provide(as: :replica) { ProvideNamedDatabase.new("postgres://replica") }
+      Di.provide({ProvideNamedDatabase, :replica}) { |database| ProvideNamedRepo.new(database) }
+
+      resolved = Di.invoke(ProvideNamedRepo)
+      resolved.db.url.should eq("postgres://replica")
+    end
+
+    it "supports mixing named and unnamed dependency specs" do
+      Di.provide { ProvideDepA.new(42) }
+      Di.provide(as: :primary) { ProvideNamedDatabase.new("postgres://primary") }
+      Di.provide({ProvideNamedDatabase, :primary}, ProvideDepA) { |database, dep_a| ProvideMixedDeps.new(database, dep_a) }
+
+      resolved = Di.invoke(ProvideMixedDeps)
+      resolved.db.url.should eq("postgres://primary")
+      resolved.dep_a.id.should eq(42)
     end
   end
 end
