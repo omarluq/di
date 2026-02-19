@@ -170,6 +170,20 @@ describe "Di.scope" do
       Di.current_scope.should be_nil
       Di.scopes[:req]?.should be_nil
     end
+
+    it "preserves body exception when both body and shutdown fail" do
+      error = expect_raises(Exception, "body error") do
+        Di.scope(:dual_fail) do
+          Di.provide { ScopeFailShutdown.new }
+          Di.invoke(ScopeFailShutdown)
+          raise "body error"
+        end
+      end
+
+      error.message.should eq("body error")
+      error.should_not be_a(Di::ShutdownError)
+      Di.current_scope.should be_nil
+    end
   end
 end
 

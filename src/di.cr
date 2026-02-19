@@ -282,8 +282,12 @@ module Di
     map[name] = child
     scope_stack.push(child)
     @@fiber_state_mutex.synchronize { @@global_scope_count += 1 }
+    body_raised = false
     begin
       yield
+    rescue ex
+      body_raised = true
+      raise ex
     ensure
       errors = shutdown_scope(child)
       scope_stack.pop
@@ -294,7 +298,9 @@ module Di
         map.delete(name)
       end
       cleanup_fiber if scope_stack.empty?
-      raise ShutdownError.new(errors) unless errors.empty?
+      # Only raise shutdown errors when the scope body succeeded.
+      # If both body and shutdown fail, the body exception takes priority.
+      raise ShutdownError.new(errors) if !errors.empty? && !body_raised
     end
   end
 
