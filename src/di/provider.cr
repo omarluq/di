@@ -28,6 +28,7 @@ module Di
     # Transient: the factory runs on every resolve, nothing is cached.
     class Instance(T) < Base
       @instance : T? = nil
+      @mutex = Mutex.new
 
       # Registry key used for cycle detection (set on registration).
       property key : String = T.name
@@ -37,17 +38,30 @@ module Di
 
       # Type-safe resolve with circular dependency guard.
       def resolve_typed : T
-        # Cached singleton fast path (no cycle guard needed).
+        # Cached singleton fast path (no lock needed).
         if !@transient && (inst = @instance)
           return inst
         end
 
-        result = uninitialized T
+        # Circular dependency check is fiber-local, must be outside mutex.
         Di.push_resolution(@key) do
-          result = @factory.call
-          @instance = result unless @transient
+          return @factory.call if @transient
+          return resolve_singleton
         end
-        result
+
+        # Unreachable — push_resolution always yields, but Crystal needs this.
+        raise "BUG: unreachable in Di::Provider::Instance#resolve_typed"
+      end
+
+      private def resolve_singleton : T
+        @mutex.synchronize do
+          if inst = @instance
+            return inst
+          end
+          result = @factory.call
+          @instance = result
+          result
+        end
       end
 
       def transient? : Bool

@@ -19,6 +19,23 @@ private class SlowServiceB
   end
 end
 
+private class SingletonCounter
+  @@count = 0
+
+  def self.reset
+    @@count = 0
+  end
+
+  def self.count
+    @@count
+  end
+
+  def initialize
+    @@count += 1
+    Fiber.yield
+  end
+end
+
 describe "Fiber isolation" do
   describe "scope context" do
     it "isolates scopes across concurrent fibers" do
@@ -201,6 +218,22 @@ describe "Fiber isolation" do
       Di.provide { ConcurrencyService.new("new_svc") }
 
       TestHelpers.fiber_state_count.should eq(before)
+    end
+  end
+
+  describe "singleton thread safety" do
+    it "constructs singleton only once under concurrent invoke" do
+      SingletonCounter.reset
+      Di.provide { SingletonCounter.new }
+
+      results = Channel(SingletonCounter).new(5)
+      5.times do
+        spawn { results.send(Di.invoke(SingletonCounter)) }
+      end
+
+      instances = 5.times.map { results.receive }.to_a
+      instances.uniq!.size.should eq(1)
+      SingletonCounter.count.should eq(1)
     end
   end
 end
