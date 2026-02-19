@@ -390,7 +390,7 @@ module Di
   # Collect health from registry providers.
   private def self.collect_health(reg : Registry) : Hash(String, Bool)
     result = {} of String => Bool
-    reg.each do |key, provider|
+    reg.snapshot.each do |key, provider|
       status = provider.check_health
       result[key] = status unless status.nil?
     end
@@ -408,7 +408,7 @@ module Di
     if parent = scope.parent
       result.merge!(collect_scope_health(parent))
     end
-    scope.each do |key, provider|
+    scope.snapshot.each do |key, provider|
       status = provider.check_health
       result[key] = status unless status.nil?
     end

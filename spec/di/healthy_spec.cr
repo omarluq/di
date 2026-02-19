@@ -34,6 +34,20 @@ private class ExplodingHealthService
   end
 end
 
+# Service that calls Di.invoke during health check (tests recursive-lock safety).
+private class DependentHealthService
+  def healthy? : Bool
+    # This would deadlock if health check held registry/scope mutex.
+    Di.invoke(HealthyService).healthy?
+  end
+end
+
+private class HealthyDependency
+  def healthy? : Bool
+    true
+  end
+end
+
 describe "Di.healthy?" do
   describe "root scope" do
     it "returns health for services that implement healthy?" do
@@ -105,6 +119,31 @@ describe "Di.healthy?" do
       expect_raises(Di::ScopeNotFound, "Scope not found: unknown") do
         Di.healthy?(:unknown)
       end
+    end
+
+    it "allows healthy? to call Di.invoke without deadlock" do
+      Di.scope(:req) do
+        Di.provide { HealthyService.new }
+        Di.provide { DependentHealthService.new }
+        Di.invoke(HealthyService)
+        Di.invoke(DependentHealthService)
+
+        result = Di.healthy?(:req)
+        result["DependentHealthService"].should be_true
+      end
+    end
+  end
+
+  describe "re-entrant health probes" do
+    it "allows root healthy? when probe calls Di.invoke" do
+      Di.provide { HealthyService.new }
+      Di.provide { DependentHealthService.new }
+      Di.invoke(HealthyService)
+      Di.invoke(DependentHealthService)
+
+      result = Di.healthy?
+      result["HealthyService"].should be_true
+      result["DependentHealthService"].should be_true
     end
   end
 end

@@ -37,8 +37,13 @@ module Di
       end
 
       # Type-safe resolve with circular dependency guard.
+      #
+      # The fast-path reads @instance without holding @mutex. This is safe because:
+      # - @instance transitions nil → T exactly once under @mutex in resolve_singleton.
+      # - A stale nil read just falls through to the mutex-protected path.
+      # - @instance is only set to nil again via reset!, which requires no active scopes.
       def resolve_typed : T
-        # Cached singleton fast path (no lock needed).
+        # Cached singleton fast path (lock-free read).
         if !@transient && (inst = @instance)
           return inst
         end
@@ -55,6 +60,7 @@ module Di
 
       private def resolve_singleton : T
         @mutex.synchronize do
+          # Double-check after acquiring lock (another thread may have resolved).
           if inst = @instance
             return inst
           end

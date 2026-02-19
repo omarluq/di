@@ -60,6 +60,12 @@ module Di
       @mutex.synchronize { @providers.each { |k, v| yield k, v } }
     end
 
+    # Return a snapshot of local providers for iteration without holding mutex.
+    # Use this when callbacks may call back into Di (e.g., health checks).
+    def snapshot : Hash(String, Provider::Base)
+      @mutex.synchronize { @providers.dup }
+    end
+
     # Number of local providers.
     def size : Int32
       @mutex.synchronize { @providers.size }
