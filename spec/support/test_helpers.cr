@@ -10,11 +10,20 @@ module TestHelpers
     # This uses Crystal's ability to call private methods from same namespace.
     Di.fiber_state_count_internal
   end
+
+  # Returns the number of fibers with resolution chain state.
+  def self.resolution_chain_count : Int32
+    Di.resolution_chain_count_internal
+  end
 end
 
 # Internal helper exposed only for test assertions.
 module Di
   def self.fiber_state_count_internal : Int32
     @@fiber_state_mutex.synchronize { @@fiber_scope_stacks.size }
+  end
+
+  def self.resolution_chain_count_internal : Int32
+    @@fiber_state_mutex.synchronize { @@fiber_resolution_chains.size }
   end
 end

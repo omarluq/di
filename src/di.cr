@@ -46,6 +46,9 @@ module Di
       yield
     ensure
       chain.pop
+      if chain.empty?
+        @@fiber_state_mutex.synchronize { @@fiber_resolution_chains.delete(Fiber.current) }
+      end
     end
   end
 
@@ -160,6 +163,7 @@ module Di
   # - `Di.provide { Database.new(url) }`
   # - `Di.provide(A) { |a| B.new(a) }`
   # - `Di.provide(A, B) { |a, b| C.new(a, b) }`
+  # - `Di.provide({Database, :primary}) { |db| Repo.new(db) }`
   #
   # With dependency types, each is resolved and passed to block arguments in order.
   # This works at top-level without macro-order issues.
@@ -214,15 +218,33 @@ module Di
         {% end %}
         Di.register_provider(%key, Di::Provider::Instance(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
       {% else %}
+        {% for dep in deps %}
+          {% if dep.is_a?(TupleLiteral) %}
+            {% if dep.size != 2 %}
+              {% raise "Di.provide named dependency must use {Type, :name}, got #{dep}" %}
+            {% end %}
+            {% unless dep[1].is_a?(SymbolLiteral) %}
+              {% raise "Di.provide dependency name requires a Symbol literal in {Type, :name}, got #{dep[1]}" %}
+            {% end %}
+          {% end %}
+        {% end %}
         %injector = -> (
           {% for dep, i in deps %}
-            {{ block.args[i] }} : {{ dep }},
+            {% if dep.is_a?(TupleLiteral) %}
+              {{ block.args[i] }} : {{ dep[0] }},
+            {% else %}
+              {{ block.args[i] }} : {{ dep }},
+            {% end %}
           {% end %}
         ) { {{ block.body }} }
         %factory = -> {
           %injector.call(
             {% for dep in deps %}
-              Di.get_provider({{ dep }}.name).as(Di::Provider::Instance({{ dep }})).resolve_typed,
+              {% if dep.is_a?(TupleLiteral) %}
+                Di.get_provider(Di::Registry.key({{ dep[0] }}.name, {{ dep[1].id.stringify }})).as(Di::Provider::Instance({{ dep[0] }})).resolve_typed,
+              {% else %}
+                Di.get_provider({{ dep }}.name).as(Di::Provider::Instance({{ dep }})).resolve_typed,
+              {% end %}
             {% end %}
           )
         }

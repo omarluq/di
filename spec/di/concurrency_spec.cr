@@ -219,6 +219,15 @@ describe "Fiber isolation" do
 
       TestHelpers.fiber_state_count.should eq(before)
     end
+
+    it "cleans up resolution chain after invoke completes" do
+      before = TestHelpers.resolution_chain_count
+      Di.provide { ConcurrencyService.new("chain_test") }
+
+      Di.invoke(ConcurrencyService)
+
+      TestHelpers.resolution_chain_count.should eq(before)
+    end
   end
 
   describe "singleton thread safety" do
