@@ -1,4 +1,8 @@
-# di
+<p align="center">
+  <img src="logo.png" alt="Logo"/>
+</p>
+
+<div align="center">
 
 [![Crystal Version](https://img.shields.io/badge/Crystal-%3E%3D1.19.1-000000?style=flat&labelColor=24292e&color=000000&logo=crystal&logoColor=white)](https://crystal-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat&labelColor=24292e&logo=opensourceinitiative&logoColor=white)](LICENSE)
@@ -7,9 +11,15 @@
 [![codecov](https://img.shields.io/codecov/c/github/omarluq/di?style=flat&labelColor=24292e&logo=codecov&logoColor=white)](https://codecov.io/gh/omarluq/di)
 [![Made with Love](https://img.shields.io/badge/Made%20with-Love-ff69b4?style=flat&labelColor=24292e&logo=githubsponsors&logoColor=white)](https://github.com/omarluq/di)
 
+</div>
+
+<div align="center">
+
 A type-safe, macro-first dependency injection shard for Crystal. Inspired by [`samber/do`](https://github.com/samber/do) v2 for Go.
 
 Zero dependencies. Zero boilerplate. One macro to register, one macro to resolve. Fully type-safe at compile time.
+
+</div>
 
 ## How It Works
 
@@ -135,13 +145,13 @@ Note: Raises `Di::ScopeError` while any scopes are active.
 
 ## Error Handling
 
-| Error                    | When                                                   |
-| ------------------------ | ------------------------------------------------------ |
-| `Di::ServiceNotFound`    | Resolving a type that was never registered             |
-| `Di::CircularDependency` | Circular dependency detected during resolution         |
-| `Di::AlreadyRegistered`  | Registering the same type+name twice                   |
-| `Di::ScopeNotFound`      | `Di.healthy?(:name)` for unknown scope                 |
-| `Di::ScopeError`         | `Di.reset!` or `Di.shutdown!` while scopes are active  |
+| Error                    | When                                                     |
+| ------------------------ | -------------------------------------------------------- |
+| `Di::ServiceNotFound`    | Resolving a type that was never registered               |
+| `Di::CircularDependency` | Circular dependency detected during resolution           |
+| `Di::AlreadyRegistered`  | Registering the same type+name twice                     |
+| `Di::ScopeNotFound`      | `Di.healthy?(:name)` for unknown scope                   |
+| `Di::ScopeError`         | `Di.reset!` or `Di.shutdown!` while scopes are active    |
 | `Di::ShutdownError`      | One or more service shutdowns failed (aggregates errors) |
 
 Compile-time errors occur for missing type restrictions on auto-wire or non-literal symbol arguments.
