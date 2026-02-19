@@ -69,12 +69,29 @@ describe "Di.scope" do
     end
 
     it "sees root providers registered after scope starts (live fallback)" do
-      Di.scope(:live_test) do
-        # Root provider registered AFTER scope started
-        Di.provide { ScopeParentService.new }
-        svc = Di.invoke(ScopeParentService)
-        svc.should be_a(ScopeParentService)
+      # Cross-fiber test: scope in one fiber, root registration in another.
+      ready = Channel(Nil).new
+      done = Channel(Nil).new
+      result = Channel(ScopeParentService).new
+
+      spawn do
+        Di.scope(:cross_fiber_root) do
+          ready.send(nil)
+          # Wait for root registration from other fiber
+          sleep 5.milliseconds
+          result.send(Di.invoke(ScopeParentService))
+        end
+        done.send(nil)
       end
+
+      ready.receive # Wait for scope to be active
+      # Now register in ROOT (no scope active in this fiber)
+      Di.provide { ScopeParentService.new }
+
+      svc = result.receive
+      svc.should be_a(ScopeParentService)
+
+      done.receive
     end
 
     it "shadows parent provider with same-key override" do
