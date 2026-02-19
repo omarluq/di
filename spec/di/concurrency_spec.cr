@@ -230,6 +230,30 @@ describe "Fiber isolation" do
     end
   end
 
+  describe "scope-entry ordering" do
+    it "blocks reset! even when called immediately after scope entry begins" do
+      # The scope count must be visible before fiber-local state is published.
+      # This test opens a scope in a spawned fiber and immediately tries reset!
+      # from the main fiber — reset! must see the active scope count.
+      entered = Channel(Nil).new
+      done = Channel(Nil).new
+
+      spawn do
+        Di.scope(:ordering_test) do
+          entered.send(nil)
+          sleep 10.milliseconds
+        end
+        done.send(nil)
+      end
+
+      entered.receive
+      expect_raises(Di::ScopeError, /while scopes are active/) do
+        Di.reset!
+      end
+      done.receive
+    end
+  end
+
   describe "singleton thread safety" do
     it "constructs singleton only once under concurrent invoke" do
       SingletonCounter.reset
