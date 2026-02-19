@@ -29,7 +29,7 @@ Zero dependencies. Zero boilerplate. One macro to register, one macro to resolve
 
 **Resolution** is done via `Di.invoke(T)`. The macro expands to a registry lookup and a cast to `Provider::Instance(T)`, so the return type is always exactly `T`. Singletons are cached on first resolve; transient providers call the factory every time.
 
-**Scopes** create isolated child containers that inherit from their parent (or root). Providers registered inside a scope block are local to that scope. On block exit, scope-local singletons are shut down automatically. Scope state is fiber-local, so concurrent requests get full isolation.
+**Scopes** create isolated child containers that inherit from their parent (or root). Providers registered inside a scope block are local to that scope. Top-level scopes use a live fallback to the root registry, so root providers registered later are visible unless shadowed by scope-local providers. On block exit, scope-local singletons are shut down automatically. Scope state is fiber-local, so concurrent requests get full isolation.
 
 **Lifecycle hooks** are duck-typed. If a service responds to `shutdown`, it participates in graceful shutdown. If it responds to `healthy?`, it participates in health reporting. No interfaces or module inclusion required.
 
@@ -124,6 +124,8 @@ end
 # Scope auto-shuts down here
 ```
 
+Note: `Di.provide` called inside `Di.scope` always registers in that active scope.
+
 ### Health Check
 
 ```crystal
@@ -134,6 +136,8 @@ health = Di.healthy?
 health = Di.healthy?(:request)
 ```
 
+`healthy?` methods may call `Di.invoke(...)` safely.
+
 ### Shutdown
 
 ```crystal
@@ -142,6 +146,7 @@ Di.shutdown!
 ```
 
 Note: Raises `Di::ScopeError` while any scopes are active.
+Note: Concurrent `Di.shutdown!` calls are serialized and use an atomic snapshot plus clear of the root registry.
 
 ## Error Handling
 
@@ -155,6 +160,13 @@ Note: Raises `Di::ScopeError` while any scopes are active.
 | `Di::ShutdownError`      | One or more service shutdowns failed (aggregates errors) |
 
 Compile-time errors occur for missing type restrictions on auto-wire or non-literal symbol arguments.
+
+## Concurrency
+
+- Fiber-local state isolates scope and resolution-chain tracking per fiber.
+- Registry, scope, and provider internals are synchronized for multi-threaded Crystal (`-Dpreview_mt`).
+- `Di.reset!` and `Di.shutdown!` raise `Di::ScopeError` while any scopes are active.
+- Control-plane operations (`Di.scope` entry/exit, `Di.reset!`, `Di.shutdown!`) are coordinated through a container mutex and global active-scope guard.
 
 ## Development
 
