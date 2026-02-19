@@ -5,12 +5,13 @@ module Di
   class Scope
     getter name : Symbol
     getter parent : Scope?
+    getter fallback_registry : Registry?
 
     @providers = {} of String => Provider::Base
     @order = [] of String
     @mutex = Mutex.new
 
-    def initialize(@name : Symbol, @parent : Scope? = nil)
+    def initialize(@name : Symbol, @parent : Scope? = nil, @fallback_registry : Registry? = nil)
     end
 
     # Register a provider with the given key.
@@ -23,9 +24,9 @@ module Di
       end
     end
 
-    # Get a provider by key, checking parent scope if not found locally.
+    # Get a provider by key, checking parent scope then fallback registry.
     def get?(key : String) : Provider::Base?
-      @mutex.synchronize { @providers[key]? } || @parent.try(&.get?(key))
+      @mutex.synchronize { @providers[key]? } || @parent.try(&.get?(key)) || @fallback_registry.try(&.get?(key))
     end
 
     # Get a provider by key, raising ServiceNotFound if not in scope chain.
@@ -33,9 +34,9 @@ module Di
       get?(key) || raise ServiceNotFound.new(*parse_key(key))
     end
 
-    # Check if a provider is registered in this scope or any parent.
+    # Check if a provider is registered in this scope, parent, or fallback registry.
     def registered?(key : String) : Bool
-      @mutex.synchronize { @providers.has_key?(key) } || @parent.try(&.registered?(key)) || false
+      @mutex.synchronize { @providers.has_key?(key) } || @parent.try(&.registered?(key)) || @fallback_registry.try(&.registered?(key)) || false
     end
 
     # Check if a provider is registered locally in this scope only.

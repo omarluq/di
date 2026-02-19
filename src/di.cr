@@ -276,7 +276,7 @@ module Di
   # ```
   def self.scope(name : Symbol, &)
     parent = current_scope
-    child = Scope.new(name, parent: parent || root_scope)
+    child = Scope.new(name, parent: parent, fallback_registry: parent ? nil : registry)
     map = scope_map
     previous_scope = map[name]?
     map[name] = child
@@ -362,13 +362,6 @@ module Di
     end
   end
 
-  # Build a root scope wrapper around the registry for scope parent chains.
-  private def self.root_scope : Scope
-    root = Scope.new(:root)
-    registry.each { |key, provider| root.register(key, provider) }
-    root
-  end
-
   # Remove fiber-local state for the current fiber.
   private def self.cleanup_fiber : Nil
     fiber = Fiber.current
@@ -404,10 +397,14 @@ module Di
     result
   end
 
-  # Collect health from a scope, walking the parent chain.
+  # Collect health from a scope, walking the parent chain and fallback registry.
   private def self.collect_scope_health(scope : Scope) : Hash(String, Bool)
     result = {} of String => Bool
-    # Walk parents first so child overrides take precedence.
+    # Collect from fallback registry first (lowest priority).
+    if fallback = scope.fallback_registry
+      result.merge!(collect_health(fallback))
+    end
+    # Walk parents so child overrides take precedence.
     if parent = scope.parent
       result.merge!(collect_scope_health(parent))
     end

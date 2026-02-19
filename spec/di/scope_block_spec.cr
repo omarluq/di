@@ -68,6 +68,15 @@ describe "Di.scope" do
       end
     end
 
+    it "sees root providers registered after scope starts (live fallback)" do
+      Di.scope(:live_test) do
+        # Root provider registered AFTER scope started
+        Di.provide { ScopeParentService.new }
+        svc = Di.invoke(ScopeParentService)
+        svc.should be_a(ScopeParentService)
+      end
+    end
+
     it "shadows parent provider with same-key override" do
       Di.provide { ShadowService.new("root") }
 
