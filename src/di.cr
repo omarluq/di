@@ -281,14 +281,15 @@ module Di
   def self.scope(name : Symbol, &)
     parent = current_scope
     child = Scope.new(name, parent: parent, fallback_registry: parent ? nil : registry)
+    # Increment scope count BEFORE publishing fiber-local state so
+    # shutdown!/reset! guards see the count before any state is visible.
+    @@control_mutex.synchronize do
+      @@fiber_state_mutex.synchronize { @@global_scope_count += 1 }
+    end
     map = scope_map
     previous_scope = map[name]?
     map[name] = child
     scope_stack.push(child)
-    # Increment under control mutex so shutdown!/reset! guards are atomic.
-    @@control_mutex.synchronize do
-      @@fiber_state_mutex.synchronize { @@global_scope_count += 1 }
-    end
     body_raised = false
     begin
       yield
