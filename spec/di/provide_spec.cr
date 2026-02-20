@@ -106,7 +106,7 @@ describe "Di.provide" do
       Di.registry.registered?("ProvideDepA").should be_true
       Di.registry.registered?("ProvideDepB").should be_true
 
-      resolved = Di.invoke(ProvideDepB)
+      resolved = Di[ProvideDepB]
       resolved.dep.id.should eq(1)
     end
 
@@ -115,7 +115,7 @@ describe "Di.provide" do
       Di.provide(ProvideDepA) { |dep_a| ProvideDepB.new(dep_a) }
       Di.provide(ProvideDepA, ProvideDepB) { |dep_a, dep_b| ProvideDepC.new(dep_a, dep_b) }
 
-      resolved = Di.invoke(ProvideDepC)
+      resolved = Di[ProvideDepC]
       resolved.dep_a.id.should eq(7)
       resolved.dep_b.dep.id.should eq(7)
     end
@@ -125,7 +125,7 @@ describe "Di.provide" do
       Di.provide(as: :replica) { ProvideNamedDatabase.new("postgres://replica") }
       Di.provide({ProvideNamedDatabase, :replica}) { |database| ProvideNamedRepo.new(database) }
 
-      resolved = Di.invoke(ProvideNamedRepo)
+      resolved = Di[ProvideNamedRepo]
       resolved.db.url.should eq("postgres://replica")
     end
 
@@ -134,7 +134,7 @@ describe "Di.provide" do
       Di.provide(as: :primary) { ProvideNamedDatabase.new("postgres://primary") }
       Di.provide({ProvideNamedDatabase, :primary}, ProvideDepA) { |database, dep_a| ProvideMixedDeps.new(database, dep_a) }
 
-      resolved = Di.invoke(ProvideMixedDeps)
+      resolved = Di[ProvideMixedDeps]
       resolved.db.url.should eq("postgres://primary")
       resolved.dep_a.id.should eq(42)
     end

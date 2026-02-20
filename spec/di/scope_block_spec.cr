@@ -63,7 +63,7 @@ describe "Di.scope" do
       Di.provide { ScopeParentService.new }
 
       Di.scope(:test) do
-        svc = Di.invoke(ScopeParentService)
+        svc = Di[ScopeParentService]
         svc.should be_a(ScopeParentService)
       end
     end
@@ -79,7 +79,7 @@ describe "Di.scope" do
           ready.send(nil)
           # Wait for root registration from other fiber
           sleep 5.milliseconds
-          result.send(Di.invoke(ScopeParentService))
+          result.send(Di[ScopeParentService])
         end
         done.send(nil)
       end
@@ -99,11 +99,11 @@ describe "Di.scope" do
 
       Di.scope(:test) do
         Di.provide { ShadowService.new("scope") }
-        Di.invoke(ShadowService).value.should eq("scope")
+        Di[ShadowService].value.should eq("scope")
       end
 
       # Root provider unchanged after scope exits
-      Di.invoke(ShadowService).value.should eq("root")
+      Di[ShadowService].value.should eq("root")
     end
   end
 
@@ -116,8 +116,8 @@ describe "Di.scope" do
 
         Di.scope(:inner) do
           # Inherits from both outer and root
-          Di.invoke(ScopeParentService).should be_a(ScopeParentService)
-          Di.invoke(ScopeBlockService).id.should eq(1)
+          Di[ScopeParentService].should be_a(ScopeParentService)
+          Di[ScopeBlockService].id.should eq(1)
         end
       end
     end
@@ -132,7 +132,7 @@ describe "Di.scope" do
 
         # Outer :req scope should still be accessible for health checks
         Di.scopes[:req]?.should_not be_nil
-        Di.invoke(ScopeBlockService).id.should eq(1)
+        Di[ScopeBlockService].id.should eq(1)
       end
 
       Di.scopes[:req]?.should be_nil
@@ -146,7 +146,7 @@ describe "Di.scope" do
       Di.scope(:test) do
         Di.provide { shutdown_svc }
         # Resolve to create the cached instance
-        Di.invoke(ScopeShutdownService)
+        Di[ScopeShutdownService]
       end
 
       shutdown_svc.shutdown_called?.should be_true
@@ -188,7 +188,7 @@ describe "Di.scope" do
       error = expect_raises(Di::ShutdownError) do
         Di.scope(:req) do
           Di.provide { ScopeFailShutdown.new }
-          Di.invoke(ScopeFailShutdown)
+          Di[ScopeFailShutdown]
         end
       end
 
@@ -201,7 +201,7 @@ describe "Di.scope" do
       error = expect_raises(Exception, "body error") do
         Di.scope(:dual_fail) do
           Di.provide { ScopeFailShutdown.new }
-          Di.invoke(ScopeFailShutdown)
+          Di[ScopeFailShutdown]
           raise "body error"
         end
       end

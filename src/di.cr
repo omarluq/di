@@ -307,7 +307,7 @@ module Di
   # ```
   # Di.scope(:request) do
   #   Di.provide { CurrentUser.from_token(token) }
-  #   user = Di.invoke(CurrentUser)
+  #   user = Di[CurrentUser]
   # end
   # ```
   def self.scope(name : Symbol, &)

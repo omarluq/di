@@ -45,7 +45,7 @@ describe "Fiber isolation" do
         Di.scope(:a) do
           Di.provide { ConcurrencyService.new("a") }
           Fiber.yield
-          svc = Di.invoke(ConcurrencyService)
+          svc = Di[ConcurrencyService]
           results.send({:a.to_s, svc.scope_id})
         end
       end
@@ -54,7 +54,7 @@ describe "Fiber isolation" do
         Di.scope(:b) do
           Di.provide { ConcurrencyService.new("b") }
           Fiber.yield
-          svc = Di.invoke(ConcurrencyService)
+          svc = Di[ConcurrencyService]
           results.send({:b.to_s, svc.scope_id})
         end
       end
@@ -73,7 +73,7 @@ describe "Fiber isolation" do
         Di.scope(:req) do
           Di.provide { ConcurrencyService.new("fiber1") }
           Fiber.yield
-          svc = Di.invoke(ConcurrencyService)
+          svc = Di[ConcurrencyService]
           results.send({"fiber1", svc.scope_id})
         end
       end
@@ -82,7 +82,7 @@ describe "Fiber isolation" do
         Di.scope(:req) do
           Di.provide { ConcurrencyService.new("fiber2") }
           Fiber.yield
-          svc = Di.invoke(ConcurrencyService)
+          svc = Di[ConcurrencyService]
           results.send({"fiber2", svc.scope_id})
         end
       end
@@ -104,7 +104,7 @@ describe "Fiber isolation" do
       spawn do
         Di.scope(:temp) do
           Di.provide { ConcurrencyService.new("cleanup") }
-          Di.invoke(ConcurrencyService)
+          Di[ConcurrencyService]
           mid_count.send(TestHelpers.fiber_state_count)
         end
         done.send(nil)
@@ -125,7 +125,7 @@ describe "Fiber isolation" do
 
       spawn do
         begin
-          Di.invoke(SlowServiceA)
+          Di[SlowServiceA]
           errors.send(nil)
         rescue ex
           errors.send(ex)
@@ -134,7 +134,7 @@ describe "Fiber isolation" do
 
       spawn do
         begin
-          Di.invoke(SlowServiceB)
+          Di[SlowServiceB]
           errors.send(nil)
         rescue ex
           errors.send(ex)
@@ -203,11 +203,11 @@ describe "Fiber isolation" do
   end
 
   describe "invoke-only fibers" do
-    it "does not allocate fiber state for Di.invoke without scope" do
+    it "does not allocate fiber state for Di[] without scope" do
       before = TestHelpers.fiber_state_count
 
       Di.provide { ConcurrencyService.new("test") }
-      Di.invoke(ConcurrencyService)
+      Di[ConcurrencyService]
 
       TestHelpers.fiber_state_count.should eq(before)
     end
@@ -224,7 +224,7 @@ describe "Fiber isolation" do
       before = TestHelpers.resolution_chain_count
       Di.provide { ConcurrencyService.new("chain_test") }
 
-      Di.invoke(ConcurrencyService)
+      Di[ConcurrencyService]
 
       TestHelpers.resolution_chain_count.should eq(before)
     end
@@ -261,7 +261,7 @@ describe "Fiber isolation" do
 
       results = Channel(SingletonCounter).new(5)
       5.times do
-        spawn { results.send(Di.invoke(SingletonCounter)) }
+        spawn { results.send(Di[SingletonCounter]) }
       end
 
       instances = 5.times.map { results.receive }.to_a

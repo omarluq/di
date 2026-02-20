@@ -25,8 +25,8 @@ describe "Di.provide with transient option" do
   it "creates new instance on each invoke for transient" do
     Di.provide(transient: true) { TransientService.new(rand(1000) + 1) }
 
-    instance1 = Di.invoke(TransientService)
-    instance2 = Di.invoke(TransientService)
+    instance1 = Di[TransientService]
+    instance2 = Di[TransientService]
 
     instance1.should_not eq(instance2)
   end
@@ -34,8 +34,8 @@ describe "Di.provide with transient option" do
   it "returns same instance for singleton" do
     Di.provide { TransientService.new(1) }
 
-    instance1 = Di.invoke(TransientService)
-    instance2 = Di.invoke(TransientService)
+    instance1 = Di[TransientService]
+    instance2 = Di[TransientService]
 
     instance1.should eq(instance2)
   end
@@ -48,8 +48,8 @@ describe "Di.provide with named + transient" do
     provider = Di.registry.get("TransientService/replica")
     provider.transient?.should be_true
 
-    instance1 = Di.invoke(TransientService, :replica)
-    instance2 = Di.invoke(TransientService, :replica)
+    instance1 = Di[TransientService, :replica]
+    instance2 = Di[TransientService, :replica]
 
     instance1.should_not eq(instance2)
   end

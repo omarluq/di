@@ -43,7 +43,7 @@ describe "Di.provide auto-wire" do
       Di.provide { AutowireCache.new }
       Di.provide AutowireRepository
 
-      repo = Di.invoke(AutowireRepository)
+      repo = Di[AutowireRepository]
       repo.should be_a(AutowireRepository)
       repo.db.url.should eq("postgres://localhost")
     end
@@ -54,7 +54,7 @@ describe "Di.provide auto-wire" do
       Di.provide AutowireRepository
       Di.provide AutowireService
 
-      service = Di.invoke(AutowireService)
+      service = Di[AutowireService]
       service.should be_a(AutowireService)
       service.repo.should be_a(AutowireRepository)
       service.cache.should be_a(AutowireCache)
@@ -65,7 +65,7 @@ describe "Di.provide auto-wire" do
     it "registers service with no-arg initialize" do
       Di.provide NoDepsService
 
-      svc = Di.invoke(NoDepsService)
+      svc = Di[NoDepsService]
       svc.should be_a(NoDepsService)
       svc.value.should eq(42)
     end
@@ -75,8 +75,8 @@ describe "Di.provide auto-wire" do
     it "creates new instance on each invoke" do
       Di.provide NoDepsService, transient: true
 
-      instance1 = Di.invoke(NoDepsService)
-      instance2 = Di.invoke(NoDepsService)
+      instance1 = Di[NoDepsService]
+      instance2 = Di[NoDepsService]
 
       instance1.should_not eq(instance2)
     end
@@ -88,7 +88,7 @@ describe "Di.provide auto-wire" do
       Di.provide { AutowireCache.new }
       Di.provide AutowireRepository, as: :primary
 
-      repo = Di.invoke(AutowireRepository, :primary)
+      repo = Di[AutowireRepository, :primary]
       repo.db.url.should eq("postgres://primary")
     end
   end

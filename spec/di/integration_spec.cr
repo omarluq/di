@@ -61,8 +61,8 @@ describe "Integration: full lifecycle" do
       Di.provide(as: :primary) { IntegDatabase.new("primary_url") }
       Di.provide(as: :replica) { IntegDatabase.new("replica_url") }
 
-      primary = Di.invoke(IntegDatabase, :primary)
-      replica = Di.invoke(IntegDatabase, :replica)
+      primary = Di[IntegDatabase, :primary]
+      replica = Di[IntegDatabase, :replica]
 
       primary.url.should eq("primary_url")
       replica.url.should eq("replica_url")
@@ -75,7 +75,7 @@ describe "Integration: full lifecycle" do
       Di.provide IntegUserRepository
       Di.provide IntegUserService
 
-      svc = Di.invoke(IntegUserService)
+      svc = Di[IntegUserService]
       svc.repo.db.url.should eq("auto_wire_db")
       svc.cache.should be_a(IntegCacheService)
     end
@@ -91,8 +91,8 @@ describe "Integration: full lifecycle" do
       Di.provide(as: :healthy_db) { healthy_db }
       Di.provide(as: :unhealthy_db) { unhealthy_db }
 
-      Di.invoke(IntegDatabase, :healthy_db)
-      Di.invoke(IntegDatabase, :unhealthy_db)
+      Di[IntegDatabase, :healthy_db]
+      Di[IntegDatabase, :unhealthy_db]
 
       health = Di.healthy?
       health["IntegDatabase/healthy_db"].should be_true
@@ -107,16 +107,16 @@ describe "Integration: full lifecycle" do
       Di.scope(:request) do
         Di.provide { IntegCurrentUser.from_token("tok_abc") }
 
-        current = Di.invoke(IntegCurrentUser)
+        current = Di[IntegCurrentUser]
         current.token.should eq("tok_abc")
 
         # Inherited from root.
-        db = Di.invoke(IntegDatabase)
+        db = Di[IntegDatabase]
         db.url.should eq("root_db")
       end
 
       # CurrentUser not visible outside scope.
-      Di.invoke?(IntegCurrentUser).should be_nil
+      Di[IntegCurrentUser]?.should be_nil
     end
   end
 
@@ -128,8 +128,8 @@ describe "Integration: full lifecycle" do
       Di.provide(as: :first) { db1 }
       Di.provide(as: :second) { db2 }
 
-      Di.invoke(IntegDatabase, :first)
-      Di.invoke(IntegDatabase, :second)
+      Di[IntegDatabase, :first]
+      Di[IntegDatabase, :second]
 
       Di.shutdown!
 

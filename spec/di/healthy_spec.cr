@@ -34,11 +34,11 @@ private class ExplodingHealthService
   end
 end
 
-# Service that calls Di.invoke during health check (tests recursive-lock safety).
+# Service that calls Di[] during health check (tests recursive-lock safety).
 private class DependentHealthService
   def healthy? : Bool
     # This would deadlock if health check held registry/scope mutex.
-    Di.invoke(HealthyService).healthy?
+    Di[HealthyService].healthy?
   end
 end
 
@@ -53,8 +53,8 @@ describe "Di.healthy?" do
     it "returns health for services that implement healthy?" do
       Di.provide { HealthyService.new }
       Di.provide { UnhealthyService.new }
-      Di.invoke(HealthyService)
-      Di.invoke(UnhealthyService)
+      Di[HealthyService]
+      Di[UnhealthyService]
 
       result = Di.healthy?
       result["HealthyService"].should be_true
@@ -63,7 +63,7 @@ describe "Di.healthy?" do
 
     it "skips services without healthy?" do
       Di.provide { NoHealthService.new }
-      Di.invoke(NoHealthService)
+      Di[NoHealthService]
 
       result = Di.healthy?
       result.has_key?("NoHealthService").should be_false
@@ -83,7 +83,7 @@ describe "Di.healthy?" do
 
     it "returns false when health probe raises" do
       Di.provide { ExplodingHealthService.new }
-      Di.invoke(ExplodingHealthService)
+      Di[ExplodingHealthService]
 
       result = Di.healthy?
       result["ExplodingHealthService"].should be_false
@@ -94,7 +94,7 @@ describe "Di.healthy?" do
     it "returns health for scope-local services" do
       Di.scope(:request) do
         Di.provide { HealthyService.new }
-        Di.invoke(HealthyService)
+        Di[HealthyService]
 
         result = Di.healthy?(:request)
         result["HealthyService"].should be_true
@@ -103,11 +103,11 @@ describe "Di.healthy?" do
 
     it "includes inherited parent services" do
       Di.provide { HealthyService.new }
-      Di.invoke(HealthyService)
+      Di[HealthyService]
 
       Di.scope(:request) do
         Di.provide { UnhealthyService.new }
-        Di.invoke(UnhealthyService)
+        Di[UnhealthyService]
 
         result = Di.healthy?(:request)
         result["HealthyService"].should be_true
@@ -121,12 +121,12 @@ describe "Di.healthy?" do
       end
     end
 
-    it "allows healthy? to call Di.invoke without deadlock" do
+    it "allows healthy? to call Di[] without deadlock" do
       Di.scope(:req) do
         Di.provide { HealthyService.new }
         Di.provide { DependentHealthService.new }
-        Di.invoke(HealthyService)
-        Di.invoke(DependentHealthService)
+        Di[HealthyService]
+        Di[DependentHealthService]
 
         result = Di.healthy?(:req)
         result["DependentHealthService"].should be_true
@@ -135,11 +135,11 @@ describe "Di.healthy?" do
   end
 
   describe "re-entrant health probes" do
-    it "allows root healthy? when probe calls Di.invoke" do
+    it "allows root healthy? when probe calls Di[]" do
       Di.provide { HealthyService.new }
       Di.provide { DependentHealthService.new }
-      Di.invoke(HealthyService)
-      Di.invoke(DependentHealthService)
+      Di[HealthyService]
+      Di[DependentHealthService]
 
       result = Di.healthy?
       result["HealthyService"].should be_true

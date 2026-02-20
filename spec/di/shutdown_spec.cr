@@ -28,12 +28,12 @@ describe "Di.shutdown!" do
     Di.provide { NoShutdownService.new(2) }
 
     # Resolve singletons so instances are cached.
-    Di.invoke(ShutdownTracker)
-    Di.invoke(NoShutdownService)
+    Di[ShutdownTracker]
+    Di[NoShutdownService]
 
     # Register a second tracker under a named key.
     Di.provide(as: :second) { ShutdownTracker.new(3) }
-    Di.invoke(ShutdownTracker, :second)
+    Di[ShutdownTracker, :second]
 
     Di.shutdown!
 
@@ -43,7 +43,7 @@ describe "Di.shutdown!" do
 
   it "skips transient providers" do
     Di.provide(transient: true) { ShutdownTracker.new(99) }
-    Di.invoke(ShutdownTracker)
+    Di[ShutdownTracker]
 
     Di.shutdown!
 
@@ -61,7 +61,7 @@ describe "Di.shutdown!" do
 
   it "clears the registry after shutdown" do
     Di.provide { ShutdownTracker.new(1) }
-    Di.invoke(ShutdownTracker)
+    Di[ShutdownTracker]
 
     Di.shutdown!
 
@@ -82,8 +82,8 @@ describe "Di.shutdown!" do
     shutdown_svc = ShutdownTracker.new(1)
     Di.provide { shutdown_svc }
     Di.provide { FailingShutdownService.new }
-    Di.invoke(ShutdownTracker)
-    Di.invoke(FailingShutdownService)
+    Di[ShutdownTracker]
+    Di[FailingShutdownService]
 
     error = expect_raises(Di::ShutdownError) { Di.shutdown! }
     error.errors.size.should eq(1)
@@ -98,7 +98,7 @@ describe "Di.shutdown!" do
   it "calls each singleton shutdown exactly once under concurrent calls" do
     AtomicShutdownTracker.reset
     Di.provide { AtomicShutdownTracker.new }
-    Di.invoke(AtomicShutdownTracker)
+    Di[AtomicShutdownTracker]
 
     done = Channel(Nil).new(3)
     3.times do
