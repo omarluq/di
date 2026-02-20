@@ -25,9 +25,9 @@ Zero dependencies. Zero boilerplate. One macro to register, one macro to resolve
 
 `di` uses Crystal's compile-time macros to build a fully typed DI container with no runtime reflection.
 
-**Registration** is done via `Di.provide`. When given a bare type, the macro inspects its `initialize` method at compile time, discovers each dependency's type, and emits `Di.invoke(DependencyType)` calls to auto-wire the constructor. When given a block, the return type is inferred via `typeof`. Either way, a typed `Provider::Instance(T)` is stored in an internal registry keyed by type name.
+**Registration** is done via `Di.provide`. When given a bare type, the macro inspects its `initialize` method at compile time, discovers each dependency's type, and emits resolution calls to auto-wire the constructor. When given a block, the return type is inferred via `typeof`. Either way, a typed `Provider::Instance(T)` is stored in an internal registry keyed by type name.
 
-**Resolution** is done via `Di.invoke(T)`. The macro expands to a registry lookup and a cast to `Provider::Instance(T)`, so the return type is always exactly `T`. Singletons are cached on first resolve; transient providers call the factory every time.
+**Resolution** is done via `Di[Type]`. The macro expands to a registry lookup and a cast to `Provider::Instance(T)`, so the return type is always exactly `T`. Singletons are cached on first resolve; transient providers call the factory every time.
 
 **Scopes** create isolated child containers that inherit from their parent (or root). Providers registered inside a scope block are local to that scope. Top-level scopes use a live fallback to the root registry, so root providers registered later are visible unless shadowed by scope-local providers. On block exit, scope-local singletons are shut down automatically. Scope state is fiber-local, so concurrent requests get full isolation.
 
@@ -84,10 +84,14 @@ Dependencies are resolved and passed to block arguments in order. The key is inf
 
 ```crystal
 # Returns exactly UserService, fully typed, no casting
-svc = Di.invoke(UserService)
+svc = Di[UserService]
 
 # Nilable version, returns nil if not registered
-db = Di.invoke?(Database)
+db = Di[Database]?
+
+# Di.invoke / Di.invoke? are available as aliases
+svc = Di.invoke(UserService)
+db  = Di.invoke?(Database)
 ```
 
 ### Named Providers
@@ -97,8 +101,8 @@ db = Di.invoke?(Database)
 Di.provide(as: :primary) { Database.new(ENV["PRIMARY_URL"]) }
 Di.provide(as: :replica) { Database.new(ENV["REPLICA_URL"]) }
 
-primary = Di.invoke(Database, :primary)
-replica = Di.invoke(Database, :replica)
+primary = Di[Database, :primary]
+replica = Di[Database, :replica]
 ```
 
 Note: The `as:` argument must be a Symbol literal (`:primary`), not a variable.
@@ -118,8 +122,8 @@ Di.scope(:request) do
   Di.provide { CurrentUser.from_token(token) }
 
   # Inherits from root
-  user = Di.invoke(CurrentUser)
-  svc  = Di.invoke(UserService)
+  user = Di[CurrentUser]
+  svc  = Di[UserService]
 end
 # Scope auto-shuts down here
 ```
@@ -136,7 +140,7 @@ health = Di.healthy?
 health = Di.healthy?(:request)
 ```
 
-`healthy?` methods may call `Di.invoke(...)` safely.
+`healthy?` methods may call `Di[...]` safely.
 
 ### Shutdown
 

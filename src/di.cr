@@ -118,15 +118,15 @@ module Di
   #
   # Example:
   # ```
-  # db = Di.invoke(Database)
-  # primary = Di.invoke(Database, :primary)
+  # db = Di[Database]
+  # primary = Di[Database, :primary]
   # ```
   #
   # Raises `Di::ServiceNotFound` if the type is not registered.
-  macro invoke(type, name = nil)
+  macro [](type, name = nil)
     {% if name %}
       {% unless name.is_a?(SymbolLiteral) %}
-        {% raise "Di.invoke name requires a Symbol literal, got #{name} (use :name not a variable)" %}
+        {% raise "Di[] name requires a Symbol literal, got #{name} (use :name not a variable)" %}
       {% end %}
       Di.get_provider(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider::Instance({{ type }})).resolve_typed
     {% else %}
@@ -140,13 +140,13 @@ module Di
   #
   # Example:
   # ```
-  # db = Di.invoke?(Database)
-  # replica = Di.invoke?(Database, :replica)
+  # db = Di[Database]?
+  # replica = Di[Database, :replica]?
   # ```
-  macro invoke?(type, name = nil)
+  macro []?(type, name = nil)
     {% if name %}
       {% unless name.is_a?(SymbolLiteral) %}
-        {% raise "Di.invoke? name requires a Symbol literal, got #{name} (use :name not a variable)" %}
+        {% raise "Di[]? name requires a Symbol literal, got #{name} (use :name not a variable)" %}
       {% end %}
       %provider = Di.get_provider?(Di::Registry.key({{ type }}.name, {{ name.id.stringify }}))
     {% else %}
@@ -155,6 +155,38 @@ module Di
     if %provider
       %provider.as(Di::Provider::Instance({{ type }})).resolve_typed
     end
+  end
+
+  # Resolve a service by type.
+  #
+  # **Deprecated**: Use `Di[Type]` instead. This alias exists for backward
+  # compatibility but the bracket syntax is preferred for idiomatic Crystal.
+  #
+  # Example:
+  # ```
+  # db = Di.invoke(Database)                # deprecated
+  # db = Di[Database]                       # preferred
+  # primary = Di.invoke(Database, :primary) # deprecated
+  # primary = Di[Database, :primary]        # preferred
+  # ```
+  #
+  # Raises `Di::ServiceNotFound` if the type is not registered.
+  macro invoke(type, name = nil)
+    Di[{{ type }}, {{ name }}]
+  end
+
+  # Resolve a service by type, returning nil if not registered.
+  #
+  # **Deprecated**: Use `Di[Type]?` instead. This alias exists for backward
+  # compatibility but the bracket syntax is preferred for idiomatic Crystal.
+  #
+  # Example:
+  # ```
+  # db = Di.invoke?(Database) # deprecated
+  # db = Di[Database]?        # preferred
+  # ```
+  macro invoke?(type, name = nil)
+    Di[{{ type }}, {{ name }}]?
   end
 
   # Register a service provider.
@@ -187,7 +219,7 @@ module Di
         %factory = -> {
           {{ type }}.new(
             {% for arg in init_method.args %}
-              {{ arg.name }}: Di.invoke({{ arg.restriction }}),
+              {{ arg.name }}: Di[{{ arg.restriction }}],
             {% end %}
           )
         }
