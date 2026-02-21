@@ -54,4 +54,15 @@ module Di
       super("Shutdown failed for #{@errors.size} service(s): #{@errors.map(&.message).join(", ")}")
     end
   end
+
+  # Raised when multiple implementations of the same interface are registered
+  # and an unambiguous resolution is requested.
+  class AmbiguousServiceError < Error
+    getter interface_type : String
+    getter implementations : Array(String)
+
+    def initialize(@interface_type, @implementations)
+      super("Ambiguous service: #{@interface_type} has #{@implementations.size} implementations (#{@implementations.join(", ")}). Use named resolution or Di.all(#{@interface_type}) for multi-resolve.")
+    end
+  end
 end

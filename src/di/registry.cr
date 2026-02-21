@@ -76,12 +76,9 @@ module Di
 
     # Parse a registry key into (type_name, service_name) tuple.
     private def parse_key(key : String) : {String, String?}
-      if key.includes?('/')
-        parts = key.split('/', 2)
-        {parts[0], parts[1]}
-      else
-        {key, nil}
-      end
+      return {key, nil} unless key.includes?('/')
+      parts = key.split('/', 2)
+      {parts[0], parts[1]}
     end
   end
 end

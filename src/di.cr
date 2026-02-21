@@ -42,17 +42,13 @@ module Di
   # Yields to block. Raises CircularDependency if type is already in chain.
   def self.push_resolution(type_name : String, &)
     chain = resolution_chain
-    if chain.includes?(type_name)
-      raise CircularDependency.new(chain + [type_name])
-    end
+    raise CircularDependency.new(chain + [type_name]) if chain.includes?(type_name)
     chain << type_name
     begin
       yield
     ensure
       chain.pop
-      if chain.empty?
-        @@fiber_state_mutex.synchronize { @@fiber_resolution_chains.delete(Fiber.current) }
-      end
+      @@fiber_state_mutex.synchronize { @@fiber_resolution_chains.delete(Fiber.current) } if chain.empty?
     end
   end
 
@@ -80,32 +76,26 @@ module Di
   # Sets the provider key for cycle detection before storing.
   def self.register_provider(key : String, provider : Provider::Base) : Nil
     provider.key = key
-    if scope = current_scope
-      scope.register(key, provider)
-    else
-      registry.register(key, provider)
-    end
+    target = current_scope || registry
+    target.register(key, provider)
   end
 
   # Get a provider from the current scope chain (or root registry).
   def self.get_provider(key : String) : Provider::Base
-    if scope = current_scope
-      scope.get(key)
-    else
-      registry.get(key)
-    end
+    scope = current_scope
+    return scope.get(key) if scope
+    registry.get(key)
   end
 
   # Get a provider from the current scope chain, returning nil if not found.
   def self.get_provider?(key : String) : Provider::Base?
-    if scope = current_scope
-      scope.get?(key)
-    else
-      registry.get?(key)
-    end
+    scope = current_scope
+    return scope.get?(key) if scope
+    registry.get?(key)
   end
 
-  # :nodoc: Internal API. Use `Di.provide(Dep) { |dep| ... }` instead.
+  # :nodoc: Internal API. Use inside factory blocks at top-level where macro
+  # ordering prevents `Di[Type]`. Returns exactly `T`, no casting.
   def self.get(type : T.class) : T forall T
     get_provider(T.name).as(Provider::Instance(T)).resolve_typed
   end
@@ -124,14 +114,9 @@ module Di
   #
   # Raises `Di::ServiceNotFound` if the type is not registered.
   macro [](type, name = nil)
-    {% if name %}
-      {% unless name.is_a?(SymbolLiteral) %}
-        {% raise "Di[] name requires a Symbol literal, got #{name} (use :name not a variable)" %}
-      {% end %}
-      Di.get_provider(Di::Registry.key({{ type }}.name, {{ name.id.stringify }})).as(Di::Provider::Instance({{ type }})).resolve_typed
-    {% else %}
-      Di.get_provider({{ type }}.name).as(Di::Provider::Instance({{ type }})).resolve_typed
-    {% end %}
+    {% raise "Di[] name requires a Symbol literal, got #{name} (use :name not a variable)" if name && !name.is_a?(SymbolLiteral) %}
+    %key = {{ name }} ? Di::Registry.key({{ type }}.name, {{ name && name.id.stringify }}) : {{ type }}.name
+    Di.get_provider(%key).as(Di::Provider::Instance({{ type }})).resolve_typed
   end
 
   # Resolve a service by type, returning nil if not registered.
@@ -144,17 +129,10 @@ module Di
   # replica = Di[Database, :replica]?
   # ```
   macro []?(type, name = nil)
-    {% if name %}
-      {% unless name.is_a?(SymbolLiteral) %}
-        {% raise "Di[]? name requires a Symbol literal, got #{name} (use :name not a variable)" %}
-      {% end %}
-      %provider = Di.get_provider?(Di::Registry.key({{ type }}.name, {{ name.id.stringify }}))
-    {% else %}
-      %provider = Di.get_provider?({{ type }}.name)
-    {% end %}
-    if %provider
-      %provider.as(Di::Provider::Instance({{ type }})).resolve_typed
-    end
+    {% raise "Di[]? name requires a Symbol literal, got #{name} (use :name not a variable)" if name && !name.is_a?(SymbolLiteral) %}
+    %key = {{ name }} ? Di::Registry.key({{ type }}.name, {{ name && name.id.stringify }}) : {{ type }}.name
+    %provider = Di.get_provider?(%key)
+    %provider.as(Di::Provider::Instance({{ type }})).resolve_typed if %provider
   end
 
   # Resolve a service by type.
@@ -208,99 +186,67 @@ module Di
   # With dependency types, each is resolved and passed to block arguments in order.
   # This works at top-level without macro-order issues.
   macro provide(*deps, as _name = nil, transient _transient = false, &block)
+    # Guard: validate _name is a Symbol literal once (applies to all paths).
+    {% if _name && !_name.is_a?(SymbolLiteral) %}
+      {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+    {% end %}
+
     {% if block.is_a?(Nop) %}
+      # No-block path: auto-wire or interface binding
+      {% raise "Di.provide auto-wire requires 1 or 2 types, got #{deps.size}" if deps.size > 2 %}
+
+      # Normalize: provider_type is the registry key type, construct_type builds the instance.
+      # Di.provide Service        → both are Service
+      # Di.provide Printable, Sq  → provider=Printable, construct=Square
+      {% provider_type = deps[0] %}
+      {% construct_type = deps.size == 2 ? deps[1] : deps[0] %}
+
       {% if deps.size == 2 %}
-        {% interface_type = deps[0] %}
-        {% impl_type = deps[1] %}
-        {% unless impl_type.resolve.ancestors.any? { |ancestor| ancestor == interface_type.resolve } %}
-          {% raise "Di.provide interface binding: #{impl_type} must include or inherit from #{interface_type}" %}
-        {% end %}
-        {% init_method = impl_type.resolve.methods.find { |method| method.name == "initialize" } %}
-        {% if init_method %}
-          {% for arg in init_method.args %}
-            {% if arg.restriction.nil? %}
-              {% raise "Di.provide auto-wire requires type restriction on argument '#{arg.name}' in #{impl_type}#initialize" %}
-            {% end %}
-          {% end %}
-          %factory = -> : {{ interface_type }} {
-            {{ impl_type }}.new(
-              {% for arg in init_method.args %}
-                {{ arg.name }}: Di[{{ arg.restriction }}],
-              {% end %}
-            )
-          }
-        {% else %}
-          %factory = -> : {{ interface_type }} { {{ impl_type }}.new }
-        {% end %}
-        {% if _name %}
-          {% unless _name.is_a?(SymbolLiteral) %}
-            {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
-          {% end %}
-          %key = Di::Registry.key({{ interface_type }}.name, {{ _name.id.stringify }})
-        {% else %}
-          %key = {{ interface_type }}.name
-        {% end %}
-        Di.register_provider(%key, Di::Provider::Instance({{ interface_type }}).new(%factory, transient: {{ _transient }}))
-      {% elsif deps.size != 1 %}
-        {% raise "Di.provide auto-wire requires 1 type (or 2 types for interface binding), got #{deps.size}" %}
-      {% else %}
-        {% type = deps[0] %}
-        {% init_method = type.resolve.methods.find { |method| method.name == "initialize" } %}
-        {% if init_method %}
-          {% for arg in init_method.args %}
-            {% if arg.restriction.nil? %}
-              {% raise "Di.provide auto-wire requires type restriction on argument '#{arg.name}' in #{type}#initialize" %}
-            {% end %}
-          {% end %}
-          %factory = -> {
-            {{ type }}.new(
-              {% for arg in init_method.args %}
-                {{ arg.name }}: Di[{{ arg.restriction }}],
-              {% end %}
-            )
-          }
-        {% else %}
-          %factory = -> { {{ type }}.new }
-        {% end %}
-        {% if _name %}
-          {% unless _name.is_a?(SymbolLiteral) %}
-            {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
-          {% end %}
-          %key = Di::Registry.key({{ type }}.name, {{ _name.id.stringify }})
-        {% else %}
-          %key = {{ type }}.name
-        {% end %}
-        Di.register_provider(%key, Di::Provider::Instance({{ type }}).new(%factory, transient: {{ _transient }}))
+        {% raise "Di.provide interface binding: #{construct_type} must include or inherit from #{provider_type}" unless construct_type.resolve.ancestors.any? { |ancestor| ancestor == provider_type.resolve } %}
       {% end %}
+
+      {% init_method = construct_type.resolve.methods.find { |method| method.name == "initialize" } %}
+      {% if init_method %}
+        {% for arg in init_method.args %}
+          {% raise "Di.provide auto-wire requires type restriction on argument '#{arg.name}' in #{construct_type}#initialize" if arg.restriction.nil? %}
+        {% end %}
+        %factory = -> : {{ provider_type }} {
+          {{ construct_type }}.new(
+            {% for arg in init_method.args %}
+              {{ arg.name }}: Di[{{ arg.restriction }}],
+            {% end %}
+          )
+        }
+      {% else %}
+        %factory = -> : {{ provider_type }} { {{ construct_type }}.new }
+      {% end %}
+
+      %key = {{ _name }} ? Di::Registry.key({{ provider_type }}.name, {{ _name && _name.id.stringify }}) : {{ provider_type }}.name
+      Di.register_provider(%key, Di::Provider::Instance({{ provider_type }}).new(%factory, transient: {{ _transient }}))
+
     {% else %}
+      # Block path: explicit factory
       {% if deps.empty? && block.args.size > 0 %}
         {% raise "Di.provide block arguments require dependency types: Di.provide(Type1, ...) { |...| ... }" %}
       {% end %}
       {% if !deps.empty? && block.args.size != deps.size %}
         {% raise "Di.provide block expects #{deps.size} argument(s) for #{deps.size} dependency type(s), got #{block.args.size}" %}
       {% end %}
+
+      # Validate named dependency tuples before building factory
+      {% for dep in deps %}
+          {% raise "Di.provide named dependency must use {Type, :name}, got #{dep}" if dep.is_a?(TupleLiteral) && dep.size != 2 %}
+          {% raise "Di.provide dependency name requires a Symbol literal in {Type, :name}, got #{dep[1]}" if dep.is_a?(TupleLiteral) && !dep[1].is_a?(SymbolLiteral) %}
+      {% end %}
+
       {% if deps.empty? %}
+        # Simple block: Di.provide { Service.new }
         %factory = -> { {{ block.body }} }
-        {% if _name %}
-          {% unless _name.is_a?(SymbolLiteral) %}
-            {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
-          {% end %}
-          %key = Di::Registry.key(typeof({{ block.body }}).name, {{ _name.id.stringify }})
-        {% else %}
-          %key = typeof({{ block.body }}).name
-        {% end %}
+        %key = {{ _name }} ? Di::Registry.key(typeof({{ block.body }}).name, {{ _name && _name.id.stringify }}) : typeof({{ block.body }}).name
         Di.register_provider(%key, Di::Provider::Instance(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
+
       {% else %}
-        {% for dep in deps %}
-          {% if dep.is_a?(TupleLiteral) %}
-            {% if dep.size != 2 %}
-              {% raise "Di.provide named dependency must use {Type, :name}, got #{dep}" %}
-            {% end %}
-            {% unless dep[1].is_a?(SymbolLiteral) %}
-              {% raise "Di.provide dependency name requires a Symbol literal in {Type, :name}, got #{dep[1]}" %}
-            {% end %}
-          {% end %}
-        {% end %}
+        # Block with deps: Di.provide(A, B) { |a, b| C.new(a, b) }
         %injector = -> (
           {% for dep, i in deps %}
             {% if dep.is_a?(TupleLiteral) %}
@@ -321,14 +267,7 @@ module Di
             {% end %}
           )
         }
-        {% if _name %}
-          {% unless _name.is_a?(SymbolLiteral) %}
-            {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
-          {% end %}
-          %key = Di::Registry.key(typeof(%factory.call).name, {{ _name.id.stringify }})
-        {% else %}
-          %key = typeof(%factory.call).name
-        {% end %}
+        %key = {{ _name }} ? Di::Registry.key(typeof(%factory.call).name, {{ _name && _name.id.stringify }}) : typeof(%factory.call).name
         Di.register_provider(%key, Di::Provider::Instance(typeof(%factory.call)).new(%factory, transient: {{ _transient }}))
       {% end %}
     {% end %}
@@ -371,11 +310,7 @@ module Di
       @@control_mutex.synchronize do
         @@fiber_state_mutex.synchronize { @@global_scope_count -= 1 }
       end
-      if previous_scope
-        map[name] = previous_scope
-      else
-        map.delete(name)
-      end
+      previous_scope ? (map[name] = previous_scope) : map.delete(name)
       cleanup_fiber if scope_stack.empty?
       # Only raise shutdown errors when the scope body succeeded.
       # If both body and shutdown fail, the body exception takes priority.
@@ -390,9 +325,7 @@ module Di
   # Raises `Di::ScopeError` if any scope is active in any fiber.
   def self.shutdown! : Nil
     providers_snapshot = @@control_mutex.synchronize do
-      if @@fiber_state_mutex.synchronize { @@global_scope_count > 0 }
-        raise ScopeError.new("Cannot call Di.shutdown! while scopes are active")
-      end
+      raise ScopeError.new("Cannot call Di.shutdown! while scopes are active") if global_scope_active?
       # Capture order and clear registry atomically under control lock.
       order = registry.reverse_order
       snapshot = order.map { |key| {key, registry.get?(key)} }
@@ -401,7 +334,7 @@ module Di
     end
 
     errors = [] of Exception
-    providers_snapshot.each do |key, provider|
+    providers_snapshot.each do |_key, provider|
       next unless provider
       begin
         provider.shutdown_instance
@@ -436,9 +369,7 @@ module Di
   # Raises `Di::ScopeError` if any scope is active in any fiber.
   def self.reset! : Nil
     @@control_mutex.synchronize do
-      if @@fiber_state_mutex.synchronize { @@global_scope_count > 0 }
-        raise ScopeError.new("Cannot call Di.reset! while scopes are active")
-      end
+      raise ScopeError.new("Cannot call Di.reset! while scopes are active") if global_scope_active?
       @@registry.clear
       @@fiber_state_mutex.synchronize do
         @@fiber_scope_stacks.clear
@@ -488,13 +419,9 @@ module Di
   private def self.collect_scope_health(scope : Scope) : Hash(String, Bool)
     result = {} of String => Bool
     # Collect from fallback registry first (lowest priority).
-    if fallback = scope.fallback_registry
-      result.merge!(collect_health(fallback))
-    end
+    scope.fallback_registry.try { |fallback| result.merge!(collect_health(fallback)) }
     # Walk parents so child overrides take precedence.
-    if parent = scope.parent
-      result.merge!(collect_scope_health(parent))
-    end
+    scope.parent.try { |parent| result.merge!(collect_scope_health(parent)) }
     scope.snapshot.each do |key, provider|
       status = provider.check_health
       result[key] = status unless status.nil?

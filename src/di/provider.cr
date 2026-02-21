@@ -61,12 +61,8 @@ module Di
       private def resolve_singleton : T
         @mutex.synchronize do
           # Double-check after acquiring lock (another thread may have resolved).
-          if inst = @instance
-            return inst
-          end
-          result = @factory.call
-          @instance = result
-          result
+          return @instance.as(T) if @instance
+          @instance = @factory.call
         end
       end
 
