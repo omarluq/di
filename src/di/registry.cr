@@ -1,9 +1,17 @@
 module Di
   # Internal registry for storing providers and tracking shutdown order.
-  # Uses a string key format: "TypeName" for default, "TypeName/name" for named providers.
-  # For interface bindings, uses "TypeName:ImplName" to allow multiple implementations.
+  #
+  # Key format:
+  # - "Type" → default concrete registration
+  # - "Type:name" → named concrete registration
+  # - "~Type:Impl" → interface binding (unnamed)
+  # - "~Type:Impl:name" → interface binding (named)
+  #
   # Thread-safe for multi-threaded Crystal (-Dpreview_mt).
   class Registry
+    extend KeyParser
+    include KeyParser
+
     @providers = {} of String => Provider::Base
     @order = [] of String
     @mutex = Mutex.new
@@ -18,16 +26,20 @@ module Di
       end
     end
 
-    # Register an interface binding with implementation tracking.
-    # Uses "InterfaceType:ImplType" key format to allow multiple implementations.
-    # Does NOT raise for duplicate interface type — multiple impls are tracked.
-    def register_interface(interface_type : String, impl_type : String, provider : Provider::Base) : Nil
-      key = "#{interface_type}:#{impl_type}"
-      @mutex.synchronize do
-        raise AlreadyRegistered.new(interface_type, impl_type) if @providers.has_key?(key)
-        @providers[key] = provider
-        @order << key
-      end
+    # Find a named interface provider by scanning for ~Type:Impl:name pattern.
+    # Raises AmbiguousServiceError if multiple matches, ServiceNotFound if none.
+    def find_by_name(interface_type : String, name : String) : Provider::Base
+      resolve_ambiguous(find_all_by_name(interface_type, name), interface_type, name)
+    end
+
+    # Find all named interface providers matching ~Type:Impl:name pattern.
+    def find_all_by_name(interface_type : String, name : String) : Array(Provider::Base)
+      match_by_name_keyed(interface_type, name).values
+    end
+
+    # Find all named interface providers keyed by full key.
+    def find_all_by_name_keyed(interface_type : String, name : String) : Hash(String, Provider::Base)
+      match_by_name_keyed(interface_type, name)
     end
 
     # Get a provider by key, or nil if not registered.
@@ -42,37 +54,26 @@ module Di
       end
     end
 
-    # Get all providers for an interface type (keys starting with "Type:").
-    # Returns array of providers matching the interface prefix.
+    # Get all providers for an interface type (keys starting with "~Type:").
     def get_all(interface_type : String) : Array(Provider::Base)
-      @mutex.synchronize do
-        prefix = "#{interface_type}:"
-        @providers.select { |k, _| k.starts_with?(prefix) }.values
-      end
+      match_by_prefix(interface_type).values
     end
 
     # Get all providers keyed by full key for deduplication in child scopes.
     def get_all_keyed(interface_type : String) : Hash(String, Provider::Base)
-      @mutex.synchronize do
-        prefix = "#{interface_type}:"
-        @providers.select { |k, _| k.starts_with?(prefix) }
-      end
+      match_by_prefix(interface_type)
     end
 
     # Count implementations for an interface type.
     def count_implementations(interface_type : String) : Int32
-      @mutex.synchronize do
-        prefix = "#{interface_type}:"
-        @providers.count { |k, _| k.starts_with?(prefix) }
-      end
+      prefix = interface_prefix(interface_type)
+      @mutex.synchronize { @providers.count { |k, _| k.starts_with?(prefix) } }
     end
 
     # Get implementation names for an interface type.
     def implementation_names(interface_type : String) : Array(String)
-      @mutex.synchronize do
-        prefix = "#{interface_type}:"
-        @providers.keys.select(&.starts_with?(prefix)).map { |k| k[prefix.size..] }
-      end
+      prefix = interface_prefix(interface_type)
+      match_by_prefix(interface_type).keys.map { |k| k[prefix.size..] }
     end
 
     # Remove a provider by key (used for rollback on partial registration failure).
@@ -107,13 +108,11 @@ module Di
     end
 
     # Iterate over all providers with their keys.
-    # Note: Holds mutex for the duration of iteration.
     def each(& : String, Provider::Base ->)
       @mutex.synchronize { @providers.each { |k, v| yield k, v } }
     end
 
     # Return a snapshot of all providers for iteration without holding mutex.
-    # Use this when callbacks may call back into Di (e.g., health checks).
     def snapshot : Hash(String, Provider::Base)
       @mutex.synchronize { @providers.dup }
     end
@@ -123,21 +122,20 @@ module Di
       @mutex.synchronize { @providers.size }
     end
 
-    # Build a registry key from type name and optional service name.
-    def self.key(type_name : String, service_name : String? = nil) : String
-      service_name ? "#{type_name}/#{service_name}" : type_name
+    # Select providers matching interface prefix "~Type:".
+    private def match_by_prefix(interface_type : String) : Hash(String, Provider::Base)
+      prefix = interface_prefix(interface_type)
+      @mutex.synchronize { @providers.select { |k, _| k.starts_with?(prefix) } }
     end
 
-    # Build an interface binding key from interface and implementation types.
-    def self.interface_key(interface_type : String, impl_type : String) : String
-      "#{interface_type}:#{impl_type}"
-    end
-
-    # Parse a registry key into (type_name, service_name) tuple.
-    private def parse_key(key : String) : {String, String?}
-      return {key, nil} unless key.includes?('/')
-      parts = key.split('/', 2)
-      {parts[0], parts[1]}
+    # Select providers matching named interface pattern ~Type:Impl:name.
+    private def match_by_name_keyed(interface_type : String, name : String) : Hash(String, Provider::Base)
+      prefix = interface_prefix(interface_type)
+      suffix = ":#{name}"
+      min_len = prefix.size + suffix.size + 1
+      @mutex.synchronize do
+        @providers.select { |k, _| k.size >= min_len && k.starts_with?(prefix) && k.ends_with?(suffix) }
+      end
     end
   end
 end

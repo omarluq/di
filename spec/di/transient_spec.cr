@@ -45,7 +45,7 @@ describe "Di.provide with named + transient" do
   it "combines as: and transient: arguments" do
     Di.provide(as: :replica, transient: true) { TransientService.new(rand(1000) + 1) }
 
-    provider = Di.registry.get("TransientService/replica")
+    provider = Di.registry.get("TransientService:replica")
     provider.transient?.should be_true
 
     instance1 = Di[TransientService, :replica]
@@ -58,8 +58,8 @@ describe "Di.provide with named + transient" do
     Di.provide(as: :singleton) { TransientService.new(1) }
     Di.provide(as: :transient, transient: true) { TransientService.new(rand(1000) + 1) }
 
-    singleton_provider = Di.registry.get("TransientService/singleton")
-    transient_provider = Di.registry.get("TransientService/transient")
+    singleton_provider = Di.registry.get("TransientService:singleton")
+    transient_provider = Di.registry.get("TransientService:transient")
 
     singleton_provider.transient?.should be_false
     transient_provider.transient?.should be_true

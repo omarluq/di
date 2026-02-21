@@ -86,7 +86,7 @@ describe "Di[]" do
     end
 
     it "raises ServiceNotFound for unknown name" do
-      expect_raises(Di::ServiceNotFound, "Service not registered: NamedBracketDb/unknown") do
+      expect_raises(Di::ServiceNotFound, "Service not registered: NamedBracketDb:unknown") do
         Di[NamedBracketDb, :unknown]
       end
     end

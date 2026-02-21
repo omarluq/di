@@ -10,7 +10,7 @@ describe Di::ServiceNotFound do
 
   it "formats message for named service" do
     err = Di::ServiceNotFound.new("Database", "primary")
-    err.message.should eq("Service not registered: Database/primary")
+    err.message.should eq("Service not registered: Database:primary")
     err.type_name.should eq("Database")
     err.service_name.should eq("primary")
   end
@@ -34,7 +34,7 @@ describe Di::AlreadyRegistered do
 
   it "formats message for named service" do
     err = Di::AlreadyRegistered.new("Database", "primary")
-    err.message.should eq("Service already registered: Database/primary")
+    err.message.should eq("Service already registered: Database:primary")
     err.type_name.should eq("Database")
     err.service_name.should eq("primary")
   end

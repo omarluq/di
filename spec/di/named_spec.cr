@@ -9,10 +9,10 @@ end
 
 describe "Di.provide with named providers" do
   describe "as: argument" do
-    it "registers a named provider with type/name key" do
+    it "registers a named provider with type:name key" do
       Di.provide(as: :primary) { NamedDatabase.new("postgres://primary") }
 
-      Di.registry.registered?("NamedDatabase/primary").should be_true
+      Di.registry.registered?("NamedDatabase:primary").should be_true
       Di.registry.registered?("NamedDatabase").should be_false
     end
 
@@ -21,8 +21,8 @@ describe "Di.provide with named providers" do
       Di.provide(as: :replica) { NamedDatabase.new("postgres://replica") }
 
       Di.registry.size.should eq(2)
-      Di.registry.registered?("NamedDatabase/primary").should be_true
-      Di.registry.registered?("NamedDatabase/replica").should be_true
+      Di.registry.registered?("NamedDatabase:primary").should be_true
+      Di.registry.registered?("NamedDatabase:replica").should be_true
     end
 
     it "allows both named and unnamed for same type" do
@@ -31,13 +31,13 @@ describe "Di.provide with named providers" do
 
       Di.registry.size.should eq(2)
       Di.registry.registered?("NamedDatabase").should be_true
-      Di.registry.registered?("NamedDatabase/primary").should be_true
+      Di.registry.registered?("NamedDatabase:primary").should be_true
     end
 
     it "raises AlreadyRegistered for duplicate name" do
       Di.provide(as: :primary) { NamedDatabase.new("postgres://primary") }
 
-      expect_raises(Di::AlreadyRegistered, "Service already registered: NamedDatabase/primary") do
+      expect_raises(Di::AlreadyRegistered, "Service already registered: NamedDatabase:primary") do
         Di.provide(as: :primary) { NamedDatabase.new("postgres://primary2") }
       end
     end
@@ -65,7 +65,7 @@ describe "Di.invoke with named providers" do
   end
 
   it "raises ServiceNotFound for unknown name" do
-    expect_raises(Di::ServiceNotFound, "Service not registered: NamedDatabase/unknown") do
+    expect_raises(Di::ServiceNotFound, "Service not registered: NamedDatabase:unknown") do
       Di.invoke(NamedDatabase, :unknown)
     end
   end

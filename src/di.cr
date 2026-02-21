@@ -1,6 +1,11 @@
 require "mutex"
+require "./di/errors"
+require "./di/provider"
+require "./di/key_parser"
 
 module Di
+  extend KeyParser
+
   # Module-level registry storing root scope providers.
   @@registry = Registry.new
 
@@ -76,57 +81,57 @@ module Di
   # Sets the provider key for cycle detection before storing.
   def self.register_provider(key : String, provider : Provider::Base) : Nil
     provider.key = key
-    target = current_scope || registry
-    target.register(key, provider)
+    resolve_target.register(key, provider)
   end
 
-  # Register an interface binding (multiple impls allowed under same interface type).
-  def self.register_interface_provider(interface_type : String, impl_type : String, provider : Provider::Base) : Nil
-    provider.key = Registry.interface_key(interface_type, impl_type)
-    target = current_scope || registry
-    target.register_interface(interface_type, impl_type, provider)
-  end
-
-  # Register a named interface binding atomically (named key + interface index).
-  # Rolls back the named key if interface registration fails.
-  def self.register_named_interface(named_key : String, interface_type : String, impl_type : String, provider : Provider::Base) : Nil
-    target = current_scope || registry
-    # Register named key first (more likely to conflict, fail-fast).
-    provider.key = named_key
-    target.register(named_key, provider)
-    # Register interface index, rollback named key on failure.
-    begin
-      target.register_interface(interface_type, impl_type, provider)
-    rescue ex : AlreadyRegistered
-      target.delete(named_key)
-      raise ex
-    end
+  # Returns the active scope or falls back to the root registry.
+  # Both Scope and Registry share the same provider lookup interface.
+  private def self.resolve_target
+    current_scope || registry
   end
 
   # Get a provider from the current scope chain (or root registry).
-  # For interface types with multiple implementations, raises AmbiguousServiceError.
+  # Tries exact key first, then interface prefix scan.
   def self.get_provider(key : String) : Provider::Base
-    scope = current_scope
-    target = scope || registry
+    target = resolve_target
+    provider = target.get?(key)
+    return provider if provider
     count = target.count_implementations(key)
     raise AmbiguousServiceError.new(key, target.implementation_names(key)) if count > 1
     return target.get_all(key).first if count == 1
-    scope ? scope.get(key) : registry.get(key)
+    raise ServiceNotFound.new(key)
   end
 
   # Get a provider from the current scope chain, returning nil if not found.
   def self.get_provider?(key : String) : Provider::Base?
-    scope = current_scope
-    target = scope || registry
+    target = resolve_target
+    provider = target.get?(key)
+    return provider if provider
     count = target.count_implementations(key)
     raise AmbiguousServiceError.new(key, target.implementation_names(key)) if count > 1
     return target.get_all(key).first if count == 1
-    scope ? scope.get?(key) : registry.get?(key)
+    nil
+  end
+
+  # Get a named provider by trying exact key (Type:name) then interface scan (Type:Impl:name).
+  # Raises AmbiguousServiceError if multiple interface impls share the same name.
+  def self.get_named_provider(type_name : String, name : String) : Provider::Base
+    target = resolve_target
+    target.get?(key(type_name, name: name)) ||
+      target.find_by_name(type_name, name)
+  end
+
+  # Get a named provider, returning nil if not found.
+  # Raises AmbiguousServiceError if multiple interface impls share the same name.
+  def self.get_named_provider?(type_name : String, name : String) : Provider::Base?
+    target = resolve_target
+    target.get?(key(type_name, name: name)) ||
+      resolve_ambiguous?(target.find_all_by_name(type_name, name), type_name)
   end
 
   # Get all providers for an interface type from the current scope chain.
   def self.get_all_providers(interface_type : String) : Array(Provider::Base)
-    (current_scope || registry).get_all(interface_type)
+    resolve_target.get_all(interface_type)
   end
 
   # :nodoc: Internal API. Use inside factory blocks at top-level where macro
@@ -154,9 +159,10 @@ module Di
       {% raise "Di[Array(T)] does not support named resolution" if name %}
       {% inner = type.type_vars[0] %}
       Di.get_all_providers({{ inner }}.name).map { |provider| provider.as(Di::Provider::Instance({{ inner }})).resolve_typed }
+    {% elsif name %}
+      Di.get_named_provider({{ type }}.name, {{ name.id.stringify }}).as(Di::Provider::Instance({{ type }})).resolve_typed
     {% else %}
-      %key = {{ name }} ? Di::Registry.key({{ type }}.name, {{ name && name.id.stringify }}) : {{ type }}.name
-      Di.get_provider(%key).as(Di::Provider::Instance({{ type }})).resolve_typed
+      Di.get_provider({{ type }}.name).as(Di::Provider::Instance({{ type }})).resolve_typed
     {% end %}
   end
 
@@ -176,9 +182,11 @@ module Di
       {% inner = type.type_vars[0] %}
       %all = Di.get_all_providers({{ inner }}.name)
       %all.map { |provider| provider.as(Di::Provider::Instance({{ inner }})).resolve_typed } unless %all.empty?
+    {% elsif name %}
+      %provider = Di.get_named_provider?({{ type }}.name, {{ name.id.stringify }})
+      %provider.as(Di::Provider::Instance({{ type }})).resolve_typed if %provider
     {% else %}
-      %key = {{ name }} ? Di::Registry.key({{ type }}.name, {{ name && name.id.stringify }}) : {{ type }}.name
-      %provider = Di.get_provider?(%key)
+      %provider = Di.get_provider?({{ type }}.name)
       %provider.as(Di::Provider::Instance({{ type }})).resolve_typed if %provider
     {% end %}
   end
@@ -239,6 +247,7 @@ module Di
 
     {% if block.is_a?(Nop) %}
       # No-block path: auto-wire or interface binding
+      {% raise "Di.provide requires at least one type argument" if deps.size == 0 %}
       {% raise "Di.provide auto-wire requires 1 or 2 types, got #{deps.size}" if deps.size > 2 %}
 
       # Normalize: provider_type is the registry key type, construct_type builds the instance.
@@ -266,20 +275,15 @@ module Di
       {% end %}
 
       {% if deps.size == 2 %}
-        # Interface binding: register under interface index for Di[Array(T)] discovery.
-        %provider = Di::Provider::Instance({{ provider_type }}).new(%factory, transient: {{ _transient }})
-        {% if _name %}
-          # Named + interface: atomic two-key registration with rollback on partial failure.
-          %named_key = Di::Registry.key({{ provider_type }}.name, {{ _name.id.stringify }})
-          Di.register_named_interface(%named_key, {{ provider_type }}.name, {{ construct_type }}.name, %provider)
-        {% else %}
-          Di.register_interface_provider({{ provider_type }}.name, {{ construct_type }}.name, %provider)
-        {% end %}
+        # Interface binding: key is Type:Impl or Type:Impl:name.
+        {% key_name = _name ? _name.id.stringify : nil %}
+        %key = Di::Registry.key({{ provider_type }}.name, impl: {{ construct_type }}.name, name: {{ key_name }})
       {% else %}
-        # Single type auto-wire: use keyed registration.
-        %key = {{ _name }} ? Di::Registry.key({{ provider_type }}.name, {{ _name && _name.id.stringify }}) : {{ provider_type }}.name
-        Di.register_provider(%key, Di::Provider::Instance({{ provider_type }}).new(%factory, transient: {{ _transient }}))
+        # Single type: key is Type or Type:name.
+        {% key_name = _name ? _name.id.stringify : nil %}
+        %key = Di::Registry.key({{ provider_type }}.name, name: {{ key_name }})
       {% end %}
+      Di.register_provider(%key, Di::Provider::Instance({{ provider_type }}).new(%factory, transient: {{ _transient }}))
 
     {% else %}
       # Block path: explicit factory
@@ -295,7 +299,8 @@ module Di
       {% if deps.empty? %}
         # Simple block: Di.provide { Service.new }
         %factory = -> { {{ block.body }} }
-        %key = {{ _name }} ? Di::Registry.key(typeof({{ block.body }}).name, {{ _name && _name.id.stringify }}) : typeof({{ block.body }}).name
+        {% key_name = _name ? _name.id.stringify : nil %}
+        %key = {{ _name }} ? Di::Registry.key(typeof({{ block.body }}).name, name: {{ key_name }}) : typeof({{ block.body }}).name
         Di.register_provider(%key, Di::Provider::Instance(typeof({{ block.body }})).new(%factory, transient: {{ _transient }}))
 
       {% else %}
@@ -313,14 +318,15 @@ module Di
           %injector.call(
             {% for dep in deps %}
               {% if dep.is_a?(TupleLiteral) %}
-                Di.get_provider(Di::Registry.key({{ dep[0] }}.name, {{ dep[1].id.stringify }})).as(Di::Provider::Instance({{ dep[0] }})).resolve_typed,
+                Di.get_named_provider({{ dep[0] }}.name, {{ dep[1].id.stringify }}).as(Di::Provider::Instance({{ dep[0] }})).resolve_typed,
               {% else %}
                 Di.get_provider({{ dep }}.name).as(Di::Provider::Instance({{ dep }})).resolve_typed,
               {% end %}
             {% end %}
           )
         }
-        %key = {{ _name }} ? Di::Registry.key(typeof(%factory.call).name, {{ _name && _name.id.stringify }}) : typeof(%factory.call).name
+        {% key_name = _name ? _name.id.stringify : nil %}
+        %key = {{ _name }} ? Di::Registry.key(typeof(%factory.call).name, name: {{ key_name }}) : typeof(%factory.call).name
         Di.register_provider(%key, Di::Provider::Instance(typeof(%factory.call)).new(%factory, transient: {{ _transient }}))
       {% end %}
     {% end %}
@@ -341,7 +347,8 @@ module Di
   # ```
   def self.scope(name : Symbol, &)
     parent = current_scope
-    child = Scope.new(name, parent: parent, fallback_registry: parent ? nil : registry)
+    fallback = parent ? nil : registry
+    child = Scope.new(name, parent: parent, fallback_registry: fallback)
     # Increment scope count BEFORE publishing fiber-local state so
     # shutdown!/reset! guards see the count before any state is visible.
     @@control_mutex.synchronize do
@@ -363,7 +370,7 @@ module Di
       @@control_mutex.synchronize do
         @@fiber_state_mutex.synchronize { @@global_scope_count -= 1 }
       end
-      previous_scope ? (map[name] = previous_scope) : map.delete(name)
+      previous_scope.try { |prev| map[name] = prev } || map.delete(name)
       cleanup_fiber if scope_stack.empty?
       # Only raise shutdown errors when the scope body succeeded.
       # If both body and shutdown fail, the body exception takes priority.

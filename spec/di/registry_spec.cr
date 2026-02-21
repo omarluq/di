@@ -38,8 +38,8 @@ describe Di::Registry do
 
     it "parses named keys in error messages" do
       registry = Di::Registry.new
-      expect_raises(Di::ServiceNotFound, "Service not registered: Database/primary") do
-        registry.get("Database/primary")
+      expect_raises(Di::ServiceNotFound, "Service not registered: Database:primary") do
+        registry.get("Database:primary")
       end
     end
   end
@@ -114,8 +114,16 @@ describe Di::Registry do
       Di::Registry.key("Database").should eq("Database")
     end
 
-    it "returns type/name for named" do
-      Di::Registry.key("Database", "primary").should eq("Database/primary")
+    it "returns type:name for named concrete" do
+      Di::Registry.key("Database", name: "primary").should eq("Database:primary")
+    end
+
+    it "returns ~type:impl for interface binding" do
+      Di::Registry.key("Printable", impl: "Square").should eq("~Printable:Square")
+    end
+
+    it "returns ~type:impl:name for named interface binding" do
+      Di::Registry.key("Printable", impl: "Square", name: "primary").should eq("~Printable:Square:primary")
     end
   end
 end

@@ -8,7 +8,7 @@ module Di
     getter service_name : String?
 
     def initialize(@type_name, @service_name = nil)
-      label = @service_name ? "#{@type_name}/#{@service_name}" : @type_name
+      label = @service_name ? "#{@type_name}:#{@service_name}" : @type_name
       super("Service not registered: #{label}")
     end
   end
@@ -28,7 +28,7 @@ module Di
     getter service_name : String?
 
     def initialize(@type_name, @service_name = nil)
-      label = @service_name ? "#{@type_name}/#{@service_name}" : @type_name
+      label = @service_name ? "#{@type_name}:#{@service_name}" : @type_name
       super("Service already registered: #{label}")
     end
   end

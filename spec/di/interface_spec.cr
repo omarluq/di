@@ -105,6 +105,15 @@ describe "Di.provide interface binding" do
       b = Di[Printable]
       a.should_not eq(b)
     end
+
+    it "combines named and transient flags" do
+      Di.provide Printable, Square, as: :square, transient: true
+
+      a = Di[Printable, :square]
+      b = Di[Printable, :square]
+      a.should_not eq(b)
+      a.print_data.should eq("Square")
+    end
   end
 
   describe "with auto-wired dependencies" do
@@ -186,6 +195,17 @@ describe "Di.provide interface binding" do
       end
     end
 
+    it "scope shadows parent named interface by alias name" do
+      Di.provide Printable, Square, as: :shape
+
+      Di.scope(:test) do
+        Di.provide Printable, Circle, as: :shape
+        # Child should shadow parent by name, not create ambiguity
+        result = Di[Printable, :shape]
+        result.print_data.should eq("Circle")
+      end
+    end
+
     it "scope can add new impl alongside parent impl" do
       Di.provide Printable, Square
 
@@ -196,6 +216,28 @@ describe "Di.provide interface binding" do
         all.map(&.print_data).should contain("Square")
         all.map(&.print_data).should contain("Circle")
       end
+    end
+
+    it "named + unnamed interface bindings coexist" do
+      Di.provide Printable, Square, as: :square
+      Di.provide Printable, Circle # unnamed
+
+      Di[Printable, :square].print_data.should eq("Square")
+
+      all = Di[Array(Printable)]
+      all.size.should eq(2)
+      all.map(&.print_data).should contain("Square")
+      all.map(&.print_data).should contain("Circle")
+    end
+
+    it "named and unnamed bindings of same impl type coexist" do
+      Di.provide Printable, Square, as: :square
+      Di.provide Printable, Square, transient: true
+
+      Di[Printable, :square].print_data.should eq("Square")
+
+      all = Di[Array(Printable)]
+      all.size.should eq(2)
     end
   end
 
@@ -213,27 +255,84 @@ describe "Di.provide interface binding" do
     end
   end
 
-  describe "atomic registration" do
-    it "does not leak interface entry when named key conflicts" do
+  describe "duplicate key detection" do
+    it "raises AlreadyRegistered for same impl + same name" do
       Di.provide Printable, Square, as: :primary
-      # Same name, different impl — named key fails fast, interface never committed
       expect_raises(Di::AlreadyRegistered) do
-        Di.provide Printable, Circle, as: :primary
+        Di.provide Printable, Square, as: :primary
       end
-      all = Di[Array(Printable)]
-      all.size.should eq(1)
-      all.first.print_data.should eq("Square")
     end
 
-    it "rolls back named key when interface key conflicts" do
-      Di.provide Printable, Square, as: :s1
-      # Same impl, different name — named key succeeds, interface key conflicts, rollback
+    it "raises AlreadyRegistered for same impl without name" do
+      Di.provide Printable, Square
       expect_raises(Di::AlreadyRegistered) do
-        Di.provide Printable, Square, as: :s2
+        Di.provide Printable, Square
       end
-      # Named key should have been rolled back
-      result = Di[Printable, :s2]?
-      result.should be_nil
+    end
+  end
+
+  describe "ambiguous named interface detection" do
+    it "raises AmbiguousServiceError when multiple impls share the same name" do
+      Di.provide Printable, Square, as: :shared
+      Di.provide Printable, Circle, as: :shared
+
+      expect_raises(Di::AmbiguousServiceError, /Printable has 2 implementations/) do
+        Di[Printable, :shared]
+      end
+    end
+
+    it "raises AmbiguousServiceError in nilable variant for duplicate names" do
+      Di.provide Printable, Square, as: :shared
+      Di.provide Printable, Circle, as: :shared
+
+      expect_raises(Di::AmbiguousServiceError, /Printable has 2 implementations/) do
+        Di[Printable, :shared]?
+      end
+    end
+  end
+
+  describe "named concrete isolation" do
+    it "does not leak named concrete into unnamed Di[T] resolution" do
+      Di.provide(as: :primary) { Square.new }
+
+      # Square:primary exists but Di[Square] (unnamed) should NOT resolve it
+      expect_raises(Di::ServiceNotFound) do
+        Di[Square]
+      end
+    end
+
+    it "does not leak named concrete into Di[Array(T)]" do
+      Di.provide(as: :primary) { Square.new }
+
+      # Named concrete is NOT an interface binding, should not appear in Array(T)
+      Di[Array(Square)].should eq([] of Square)
+    end
+  end
+
+  describe "concrete vs interface named precedence" do
+    it "concrete Type:name wins over ~Type:Impl:name for the same alias" do
+      # Register a concrete named provider (Printable:primary via block)
+      Di.provide(as: :primary) { Square.new.as(Printable) }
+
+      # Register an interface binding with the same alias (~Printable:Circle:primary)
+      Di.provide Printable, Circle, as: :primary
+
+      # Concrete exact key is checked first — should resolve Square, not Circle
+      result = Di[Printable, :primary]
+      result.should be_a(Square)
+      result.print_data.should eq("Square")
+    end
+  end
+
+  describe "namespaced type key parsing" do
+    it "does not split on :: namespace separator" do
+      key = Di::Registry.key("NS::Class", name: "primary")
+      key.should eq("NS::Class:primary")
+    end
+
+    it "builds interface key with namespaced types" do
+      key = Di::Registry.key("NS::Iface", impl: "NS::Impl", name: "primary")
+      key.should eq("~NS::Iface:NS::Impl:primary")
     end
   end
 end

@@ -95,8 +95,8 @@ describe "Integration: full lifecycle" do
       Di[IntegDatabase, :unhealthy_db]
 
       health = Di.healthy?
-      health["IntegDatabase/healthy_db"].should be_true
-      health["IntegDatabase/unhealthy_db"].should be_false
+      health["IntegDatabase:healthy_db"].should be_true
+      health["IntegDatabase:unhealthy_db"].should be_false
     end
   end
 
