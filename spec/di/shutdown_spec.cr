@@ -20,6 +20,45 @@ private class NoShutdownService
   end
 end
 
+private class FailingShutdownService
+  def shutdown
+    raise "shutdown failed"
+  end
+end
+
+private class AtomicShutdownTracker
+  @@count = Atomic(Int32).new(0)
+
+  def self.count
+    @@count.get
+  end
+
+  def self.reset
+    @@count.set(0)
+  end
+
+  def shutdown
+    @@count.add(1)
+  end
+end
+
+private module ShutdownTrackable
+end
+
+private class ShutdownTrackableImpl
+  include ShutdownTrackable
+
+  class_getter shutdown_count = 0
+
+  def self.reset_count
+    @@shutdown_count = 0
+  end
+
+  def shutdown
+    @@shutdown_count += 1
+  end
+end
+
 describe "Di.shutdown!" do
   before_each { ShutdownTracker.order.clear }
 
@@ -113,26 +152,14 @@ describe "Di.shutdown!" do
     3.times { done.receive }
     AtomicShutdownTracker.count.should eq(1)
   end
-end
 
-private class FailingShutdownService
-  def shutdown
-    raise "shutdown failed"
-  end
-end
+  it "calls shutdown exactly once for aliased providers (interface + named)" do
+    ShutdownTrackableImpl.reset_count
+    Di.provide ShutdownTrackable, ShutdownTrackableImpl, as: :primary
+    Di[ShutdownTrackable]
 
-private class AtomicShutdownTracker
-  @@count = Atomic(Int32).new(0)
+    Di.shutdown!
 
-  def self.count
-    @@count.get
-  end
-
-  def self.reset
-    @@count.set(0)
-  end
-
-  def shutdown
-    @@count.add(1)
+    ShutdownTrackableImpl.shutdown_count.should eq(1)
   end
 end

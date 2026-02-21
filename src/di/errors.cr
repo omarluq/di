@@ -62,7 +62,7 @@ module Di
     getter implementations : Array(String)
 
     def initialize(@interface_type, @implementations)
-      super("Ambiguous service: #{@interface_type} has #{@implementations.size} implementations (#{@implementations.join(", ")}). Use named resolution or Di.all(#{@interface_type}) for multi-resolve.")
+      super("Ambiguous service: #{@interface_type} has #{@implementations.size} implementations (#{@implementations.join(", ")}). Use Di[Array(#{@interface_type})] for multi-resolve.")
     end
   end
 end

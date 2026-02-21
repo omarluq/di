@@ -118,6 +118,87 @@ describe "Di.provide interface binding" do
     end
   end
 
+  describe "multi-registration" do
+    it "allows multiple implementations for the same interface" do
+      Di.provide Printable, Square
+      Di.provide Printable, Circle # Should NOT raise
+
+      all = Di[Array(Printable)]
+      all.size.should eq(2)
+      all.map(&.print_data).should contain("Square")
+      all.map(&.print_data).should contain("Circle")
+    end
+
+    it "raises AmbiguousServiceError when resolving ambiguous interface" do
+      Di.provide Printable, Square
+      Di.provide Printable, Circle
+
+      expect_raises(Di::AmbiguousServiceError, /Printable has 2 implementations/) do
+        Di[Printable]
+      end
+    end
+
+    it "resolves single implementation without error" do
+      Di.provide Printable, Square
+      # Only one impl, should work fine
+      result = Di[Printable]
+      result.print_data.should eq("Square")
+    end
+
+    it "returns empty array when no implementations registered" do
+      all = Di[Array(Printable)]
+      all.should eq([] of Printable)
+    end
+
+    it "Di[Array(T)] returns typed Array(T)" do
+      Di.provide Printable, Square
+      Di.provide Printable, Circle
+
+      all = Di[Array(Printable)]
+      typeof(all).should eq(Array(Printable))
+    end
+
+    it "named interface bindings are discoverable by Di[Array(T)]" do
+      Di.provide Printable, Square, as: :square
+      Di.provide Printable, Circle, as: :circle
+
+      all = Di[Array(Printable)]
+      all.size.should eq(2)
+      all.map(&.print_data).should contain("Square")
+      all.map(&.print_data).should contain("Circle")
+    end
+
+    it "named interface bindings are resolvable by name" do
+      Di.provide Printable, Square, as: :square
+      Di.provide Printable, Circle, as: :circle
+
+      Di[Printable, :square].print_data.should eq("Square")
+      Di[Printable, :circle].print_data.should eq("Circle")
+    end
+
+    it "scope shadows parent interface impl instead of raising ambiguity" do
+      Di.provide Printable, Square
+
+      Di.scope(:test) do
+        Di.provide Printable, Square
+        result = Di[Printable]
+        result.print_data.should eq("Square")
+      end
+    end
+
+    it "scope can add new impl alongside parent impl" do
+      Di.provide Printable, Square
+
+      Di.scope(:test) do
+        Di.provide Printable, Circle
+        all = Di[Array(Printable)]
+        all.size.should eq(2)
+        all.map(&.print_data).should contain("Square")
+        all.map(&.print_data).should contain("Circle")
+      end
+    end
+  end
+
   describe "nilable resolution" do
     it "returns nil when interface is not registered" do
       result = Di[Printable]?
@@ -129,6 +210,30 @@ describe "Di.provide interface binding" do
 
       result = Di[Printable]?
       result.should be_a(Printable)
+    end
+  end
+
+  describe "atomic registration" do
+    it "does not leak interface entry when named key conflicts" do
+      Di.provide Printable, Square, as: :primary
+      # Same name, different impl — named key fails fast, interface never committed
+      expect_raises(Di::AlreadyRegistered) do
+        Di.provide Printable, Circle, as: :primary
+      end
+      all = Di[Array(Printable)]
+      all.size.should eq(1)
+      all.first.print_data.should eq("Square")
+    end
+
+    it "rolls back named key when interface key conflicts" do
+      Di.provide Printable, Square, as: :s1
+      # Same impl, different name — named key succeeds, interface key conflicts, rollback
+      expect_raises(Di::AlreadyRegistered) do
+        Di.provide Printable, Square, as: :s2
+      end
+      # Named key should have been rolled back
+      result = Di[Printable, :s2]?
+      result.should be_nil
     end
   end
 end

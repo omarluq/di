@@ -78,6 +78,13 @@ class Square
   end
 end
 
+class Circle
+  include Printable
+  def print_data : String
+    "Circle"
+  end
+end
+
 # Register Square under Printable key
 Di.provide Printable, Square
 
@@ -124,6 +131,24 @@ db = Di[Database]?
 # Di.invoke / Di.invoke? are available as aliases
 svc = Di.invoke(UserService)
 db  = Di.invoke?(Database)
+```
+
+### Multi-Resolution
+
+Register multiple implementations of the same interface and resolve them all:
+
+```crystal
+Di.provide Printable, Square
+Di.provide Printable, Circle
+
+# Resolve all implementations
+all = Di[Array(Printable)]  # => [Square, Circle] typed as Array(Printable)
+
+# Single resolve raises when ambiguous
+Di[Printable]  # => raises Di::AmbiguousServiceError
+
+# Nilable multi-resolve returns nil if none registered
+Di[Array(Printable)]?  # => nil or Array(Printable)
 ```
 
 ### Named Providers
@@ -186,14 +211,15 @@ Note: Concurrent `Di.shutdown!` calls are serialized and use an atomic snapshot 
 
 ## Error Handling
 
-| Error                    | When                                                     |
-| ------------------------ | -------------------------------------------------------- |
-| `Di::ServiceNotFound`    | Resolving a type that was never registered               |
-| `Di::CircularDependency` | Circular dependency detected during resolution           |
-| `Di::AlreadyRegistered`  | Registering the same type+name twice                     |
-| `Di::ScopeNotFound`      | `Di.healthy?(:name)` for unknown scope                   |
-| `Di::ScopeError`         | `Di.reset!` or `Di.shutdown!` while scopes are active    |
-| `Di::ShutdownError`      | One or more service shutdowns failed (aggregates errors) |
+| Error                       | When                                                     |
+| --------------------------- | -------------------------------------------------------- |
+| `Di::ServiceNotFound`       | Resolving a type that was never registered               |
+| `Di::CircularDependency`    | Circular dependency detected during resolution           |
+| `Di::AlreadyRegistered`     | Registering the same type+name twice                     |
+| `Di::AmbiguousServiceError` | Resolving an interface with multiple implementations     |
+| `Di::ScopeNotFound`         | `Di.healthy?(:name)` for unknown scope                   |
+| `Di::ScopeError`            | `Di.reset!` or `Di.shutdown!` while scopes are active    |
+| `Di::ShutdownError`         | One or more service shutdowns failed (aggregates errors) |
 
 Compile-time errors occur for missing type restrictions on auto-wire or non-literal symbol arguments.
 

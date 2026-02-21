@@ -80,18 +80,53 @@ module Di
     target.register(key, provider)
   end
 
+  # Register an interface binding (multiple impls allowed under same interface type).
+  def self.register_interface_provider(interface_type : String, impl_type : String, provider : Provider::Base) : Nil
+    provider.key = Registry.interface_key(interface_type, impl_type)
+    target = current_scope || registry
+    target.register_interface(interface_type, impl_type, provider)
+  end
+
+  # Register a named interface binding atomically (named key + interface index).
+  # Rolls back the named key if interface registration fails.
+  def self.register_named_interface(named_key : String, interface_type : String, impl_type : String, provider : Provider::Base) : Nil
+    target = current_scope || registry
+    # Register named key first (more likely to conflict, fail-fast).
+    provider.key = named_key
+    target.register(named_key, provider)
+    # Register interface index, rollback named key on failure.
+    begin
+      target.register_interface(interface_type, impl_type, provider)
+    rescue ex : AlreadyRegistered
+      target.delete(named_key)
+      raise ex
+    end
+  end
+
   # Get a provider from the current scope chain (or root registry).
+  # For interface types with multiple implementations, raises AmbiguousServiceError.
   def self.get_provider(key : String) : Provider::Base
     scope = current_scope
-    return scope.get(key) if scope
-    registry.get(key)
+    target = scope || registry
+    count = target.count_implementations(key)
+    raise AmbiguousServiceError.new(key, target.implementation_names(key)) if count > 1
+    return target.get_all(key).first if count == 1
+    scope ? scope.get(key) : registry.get(key)
   end
 
   # Get a provider from the current scope chain, returning nil if not found.
   def self.get_provider?(key : String) : Provider::Base?
     scope = current_scope
-    return scope.get?(key) if scope
-    registry.get?(key)
+    target = scope || registry
+    count = target.count_implementations(key)
+    raise AmbiguousServiceError.new(key, target.implementation_names(key)) if count > 1
+    return target.get_all(key).first if count == 1
+    scope ? scope.get?(key) : registry.get?(key)
+  end
+
+  # Get all providers for an interface type from the current scope chain.
+  def self.get_all_providers(interface_type : String) : Array(Provider::Base)
+    (current_scope || registry).get_all(interface_type)
   end
 
   # :nodoc: Internal API. Use inside factory blocks at top-level where macro
@@ -115,8 +150,14 @@ module Di
   # Raises `Di::ServiceNotFound` if the type is not registered.
   macro [](type, name = nil)
     {% raise "Di[] name requires a Symbol literal, got #{name} (use :name not a variable)" if name && !name.is_a?(SymbolLiteral) %}
-    %key = {{ name }} ? Di::Registry.key({{ type }}.name, {{ name && name.id.stringify }}) : {{ type }}.name
-    Di.get_provider(%key).as(Di::Provider::Instance({{ type }})).resolve_typed
+    {% if type.is_a?(Generic) && type.name.resolve == Array %}
+      {% raise "Di[Array(T)] does not support named resolution" if name %}
+      {% inner = type.type_vars[0] %}
+      Di.get_all_providers({{ inner }}.name).map { |provider| provider.as(Di::Provider::Instance({{ inner }})).resolve_typed }
+    {% else %}
+      %key = {{ name }} ? Di::Registry.key({{ type }}.name, {{ name && name.id.stringify }}) : {{ type }}.name
+      Di.get_provider(%key).as(Di::Provider::Instance({{ type }})).resolve_typed
+    {% end %}
   end
 
   # Resolve a service by type, returning nil if not registered.
@@ -130,9 +171,16 @@ module Di
   # ```
   macro []?(type, name = nil)
     {% raise "Di[]? name requires a Symbol literal, got #{name} (use :name not a variable)" if name && !name.is_a?(SymbolLiteral) %}
-    %key = {{ name }} ? Di::Registry.key({{ type }}.name, {{ name && name.id.stringify }}) : {{ type }}.name
-    %provider = Di.get_provider?(%key)
-    %provider.as(Di::Provider::Instance({{ type }})).resolve_typed if %provider
+    {% if type.is_a?(Generic) && type.name.resolve == Array %}
+      {% raise "Di[Array(T)]? does not support named resolution" if name %}
+      {% inner = type.type_vars[0] %}
+      %all = Di.get_all_providers({{ inner }}.name)
+      %all.map { |provider| provider.as(Di::Provider::Instance({{ inner }})).resolve_typed } unless %all.empty?
+    {% else %}
+      %key = {{ name }} ? Di::Registry.key({{ type }}.name, {{ name && name.id.stringify }}) : {{ type }}.name
+      %provider = Di.get_provider?(%key)
+      %provider.as(Di::Provider::Instance({{ type }})).resolve_typed if %provider
+    {% end %}
   end
 
   # Resolve a service by type.
@@ -187,9 +235,7 @@ module Di
   # This works at top-level without macro-order issues.
   macro provide(*deps, as _name = nil, transient _transient = false, &block)
     # Guard: validate _name is a Symbol literal once (applies to all paths).
-    {% if _name && !_name.is_a?(SymbolLiteral) %}
-      {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
-    {% end %}
+    {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" if _name && !_name.is_a?(SymbolLiteral) %}
 
     {% if block.is_a?(Nop) %}
       # No-block path: auto-wire or interface binding
@@ -201,9 +247,7 @@ module Di
       {% provider_type = deps[0] %}
       {% construct_type = deps.size == 2 ? deps[1] : deps[0] %}
 
-      {% if deps.size == 2 %}
-        {% raise "Di.provide interface binding: #{construct_type} must include or inherit from #{provider_type}" unless construct_type.resolve.ancestors.any? { |ancestor| ancestor == provider_type.resolve } %}
-      {% end %}
+      {% raise "Di.provide interface binding: #{construct_type} must include or inherit from #{provider_type}" if deps.size == 2 && !construct_type.resolve.ancestors.any? { |ancestor| ancestor == provider_type.resolve } %}
 
       {% init_method = construct_type.resolve.methods.find { |method| method.name == "initialize" } %}
       {% if init_method %}
@@ -221,17 +265,26 @@ module Di
         %factory = -> : {{ provider_type }} { {{ construct_type }}.new }
       {% end %}
 
-      %key = {{ _name }} ? Di::Registry.key({{ provider_type }}.name, {{ _name && _name.id.stringify }}) : {{ provider_type }}.name
-      Di.register_provider(%key, Di::Provider::Instance({{ provider_type }}).new(%factory, transient: {{ _transient }}))
+      {% if deps.size == 2 %}
+        # Interface binding: register under interface index for Di[Array(T)] discovery.
+        %provider = Di::Provider::Instance({{ provider_type }}).new(%factory, transient: {{ _transient }})
+        {% if _name %}
+          # Named + interface: atomic two-key registration with rollback on partial failure.
+          %named_key = Di::Registry.key({{ provider_type }}.name, {{ _name.id.stringify }})
+          Di.register_named_interface(%named_key, {{ provider_type }}.name, {{ construct_type }}.name, %provider)
+        {% else %}
+          Di.register_interface_provider({{ provider_type }}.name, {{ construct_type }}.name, %provider)
+        {% end %}
+      {% else %}
+        # Single type auto-wire: use keyed registration.
+        %key = {{ _name }} ? Di::Registry.key({{ provider_type }}.name, {{ _name && _name.id.stringify }}) : {{ provider_type }}.name
+        Di.register_provider(%key, Di::Provider::Instance({{ provider_type }}).new(%factory, transient: {{ _transient }}))
+      {% end %}
 
     {% else %}
       # Block path: explicit factory
-      {% if deps.empty? && block.args.size > 0 %}
-        {% raise "Di.provide block arguments require dependency types: Di.provide(Type1, ...) { |...| ... }" %}
-      {% end %}
-      {% if !deps.empty? && block.args.size != deps.size %}
-        {% raise "Di.provide block expects #{deps.size} argument(s) for #{deps.size} dependency type(s), got #{block.args.size}" %}
-      {% end %}
+      {% raise "Di.provide block arguments require dependency types: Di.provide(Type1, ...) { |...| ... }" if deps.empty? && block.args.size > 0 %}
+      {% raise "Di.provide block expects #{deps.size} argument(s) for #{deps.size} dependency type(s), got #{block.args.size}" if !deps.empty? && block.args.size != deps.size %}
 
       # Validate named dependency tuples before building factory
       {% for dep in deps %}
@@ -334,13 +387,14 @@ module Di
     end
 
     errors = [] of Exception
+    # Deduplicate by object_id to avoid double-shutdown for aliased providers.
+    seen = Set(UInt64).new
     providers_snapshot.each do |_key, provider|
       next unless provider
-      begin
-        provider.shutdown_instance
-      rescue ex
-        errors << ex
-      end
+      next unless seen.add?(provider.object_id)
+      provider.shutdown_instance
+    rescue ex
+      errors << ex
     end
     raise ShutdownError.new(errors) unless errors.empty?
   end
@@ -391,16 +445,16 @@ module Di
   end
 
   # Shutdown providers in a scope, collecting errors without aborting.
+  # Deduplicates by object_id to avoid double-shutdown for aliased providers.
   private def self.shutdown_scope(scope : Scope) : Array(Exception)
     errors = [] of Exception
+    seen = Set(UInt64).new
     scope.reverse_order.each do |key|
-      provider = scope.get?(key)
-      next unless provider
-      begin
-        provider.shutdown_instance
-      rescue ex
-        errors << ex
-      end
+      provider = scope.get?(key) || next
+      next unless seen.add?(provider.object_id)
+      provider.shutdown_instance
+    rescue ex
+      errors << ex
     end
     errors
   end
@@ -409,8 +463,7 @@ module Di
   private def self.collect_health(reg : Registry) : Hash(String, Bool)
     result = {} of String => Bool
     reg.snapshot.each do |key, provider|
-      status = provider.check_health
-      result[key] = status unless status.nil?
+      provider.check_health.try { |status| result[key] = status }
     end
     result
   end
@@ -423,8 +476,7 @@ module Di
     # Walk parents so child overrides take precedence.
     scope.parent.try { |parent| result.merge!(collect_scope_health(parent)) }
     scope.snapshot.each do |key, provider|
-      status = provider.check_health
-      result[key] = status unless status.nil?
+      provider.check_health.try { |status| result[key] = status }
     end
     result
   end
