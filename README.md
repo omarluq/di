@@ -6,9 +6,11 @@
 
 [![Crystal Version](https://img.shields.io/badge/Crystal-%3E%3D1.19.1-000000?style=flat&labelColor=24292e&color=000000&logo=crystal&logoColor=white)](https://crystal-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat&labelColor=24292e&logo=opensourceinitiative&logoColor=white)](LICENSE)
+[![Tests](https://img.shields.io/github/actions/workflow/status/omarluq/di/test.yml?style=flat&labelColor=24292e&label=Tests&logo=github&logoColor=white)](https://github.com/omarluq/di/actions/workflows/test.yml)
+[![Version](https://img.shields.io/github/release/omarluq/di?style=flat&labelColor=24292e&color=28a745&label=Version&logo=semver&logoColor=white)](https://github.com/omarluq/di/releases)\
+[![codecov](https://img.shields.io/codecov/c/github/omarluq/di?style=flat&labelColor=24292e&logo=codecov&logoColor=white&token=YW23EDL5T5)](https://codecov.io/gh/omarluq/di)
 [![Docs](https://img.shields.io/badge/Docs-API%20Reference-5e5086?style=flat&labelColor=24292e&logo=gitbook&logoColor=white)](https://crystaldoc.info/github/omarluq/di)
 [![Maintained](https://img.shields.io/badge/Maintained%3F-yes-28a745?style=flat&labelColor=24292e&logo=checkmarx&logoColor=white)](https://github.com/omarluq/di)
-[![codecov](https://img.shields.io/codecov/c/github/omarluq/di?style=flat&labelColor=24292e&logo=codecov&logoColor=white)](https://codecov.io/gh/omarluq/di)
 [![Made with Love](https://img.shields.io/badge/Made%20with-Love-ff69b4?style=flat&labelColor=24292e&logo=githubsponsors&logoColor=white)](https://github.com/omarluq/di)
 
 </div>
