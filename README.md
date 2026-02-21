@@ -62,6 +62,38 @@ Di.provide UserService
 Di.provide UserRepository
 ```
 
+### Interface Binding
+
+Register a concrete type under an abstract module or class key:
+
+```crystal
+module Printable
+  abstract def print_data : String
+end
+
+class Square
+  include Printable
+  def print_data : String
+    "Square"
+  end
+end
+
+# Register Square under Printable key
+Di.provide Printable, Square
+
+# Resolve by interface type
+p = Di[Printable]  # => Square instance, typed as Printable
+p.print_data       # => "Square"
+```
+
+Also supports named providers and transient mode:
+
+```crystal
+Di.provide Printable, Square, as: :square
+Di.provide Printable, Circle, as: :circle
+Di.provide Printable, Square, transient: true
+```
+
 ### Factory with Dependencies
 
 When auto-wire isn't enough (custom construction, extra config, wrapping), declare dependency types before the block:

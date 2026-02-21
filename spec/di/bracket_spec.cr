@@ -144,8 +144,7 @@ end
 #   "Di[]? name requires a Symbol literal, got ... (use :name not a variable)"
 #
 # These cannot be tested with spec expectations because the error occurs during
-# compilation, not at runtime. See spec/di/compile_errors_test.sh for a script
-# that asserts these compile failures.
+# compilation, not at runtime. The compile-time guards are in src/di.cr.
 
 describe "Di[] vs Di.invoke equivalence" do
   it "both return the same singleton instance" do

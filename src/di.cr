@@ -195,6 +195,10 @@ module Di
   # - `Di.provide UserService`
   # - `Di.provide UserService, as: :primary`
   #
+  # Interface binding (2 types, no block):
+  # - `Di.provide Printable, Square`  # register Square under Printable key
+  # - `Di.provide Printable, Square, as: :primary`
+  #
   # Block forms:
   # - `Di.provide { Database.new(url) }`
   # - `Di.provide(A) { |a| B.new(a) }`
@@ -205,36 +209,69 @@ module Di
   # This works at top-level without macro-order issues.
   macro provide(*deps, as _name = nil, transient _transient = false, &block)
     {% if block.is_a?(Nop) %}
-      {% if deps.size != 1 %}
-        {% raise "Di.provide auto-wire requires exactly 1 type argument when no block is given, got #{deps.size}" %}
-      {% end %}
-      {% type = deps[0] %}
-      {% init_method = type.resolve.methods.find { |method| method.name == "initialize" } %}
-      {% if init_method %}
-        {% for arg in init_method.args %}
-          {% if arg.restriction.nil? %}
-            {% raise "Di.provide auto-wire requires type restriction on argument '#{arg.name}' in #{type}#initialize" %}
-          {% end %}
+      {% if deps.size == 2 %}
+        {% interface_type = deps[0] %}
+        {% impl_type = deps[1] %}
+        {% unless impl_type.resolve.ancestors.any? { |ancestor| ancestor == interface_type.resolve } %}
+          {% raise "Di.provide interface binding: #{impl_type} must include or inherit from #{interface_type}" %}
         {% end %}
-        %factory = -> {
-          {{ type }}.new(
-            {% for arg in init_method.args %}
-              {{ arg.name }}: Di[{{ arg.restriction }}],
+        {% init_method = impl_type.resolve.methods.find { |method| method.name == "initialize" } %}
+        {% if init_method %}
+          {% for arg in init_method.args %}
+            {% if arg.restriction.nil? %}
+              {% raise "Di.provide auto-wire requires type restriction on argument '#{arg.name}' in #{impl_type}#initialize" %}
             {% end %}
-          )
-        }
-      {% else %}
-        %factory = -> { {{ type }}.new }
-      {% end %}
-      {% if _name %}
-        {% unless _name.is_a?(SymbolLiteral) %}
-          {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+          {% end %}
+          %factory = -> : {{ interface_type }} {
+            {{ impl_type }}.new(
+              {% for arg in init_method.args %}
+                {{ arg.name }}: Di[{{ arg.restriction }}],
+              {% end %}
+            )
+          }
+        {% else %}
+          %factory = -> : {{ interface_type }} { {{ impl_type }}.new }
         {% end %}
-        %key = Di::Registry.key({{ type }}.name, {{ _name.id.stringify }})
+        {% if _name %}
+          {% unless _name.is_a?(SymbolLiteral) %}
+            {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+          {% end %}
+          %key = Di::Registry.key({{ interface_type }}.name, {{ _name.id.stringify }})
+        {% else %}
+          %key = {{ interface_type }}.name
+        {% end %}
+        Di.register_provider(%key, Di::Provider::Instance({{ interface_type }}).new(%factory, transient: {{ _transient }}))
+      {% elsif deps.size != 1 %}
+        {% raise "Di.provide auto-wire requires 1 type (or 2 types for interface binding), got #{deps.size}" %}
       {% else %}
-        %key = {{ type }}.name
+        {% type = deps[0] %}
+        {% init_method = type.resolve.methods.find { |method| method.name == "initialize" } %}
+        {% if init_method %}
+          {% for arg in init_method.args %}
+            {% if arg.restriction.nil? %}
+              {% raise "Di.provide auto-wire requires type restriction on argument '#{arg.name}' in #{type}#initialize" %}
+            {% end %}
+          {% end %}
+          %factory = -> {
+            {{ type }}.new(
+              {% for arg in init_method.args %}
+                {{ arg.name }}: Di[{{ arg.restriction }}],
+              {% end %}
+            )
+          }
+        {% else %}
+          %factory = -> { {{ type }}.new }
+        {% end %}
+        {% if _name %}
+          {% unless _name.is_a?(SymbolLiteral) %}
+            {% raise "Di.provide 'as:' requires a Symbol literal, got #{_name} (use :name not a variable)" %}
+          {% end %}
+          %key = Di::Registry.key({{ type }}.name, {{ _name.id.stringify }})
+        {% else %}
+          %key = {{ type }}.name
+        {% end %}
+        Di.register_provider(%key, Di::Provider::Instance({{ type }}).new(%factory, transient: {{ _transient }}))
       {% end %}
-      Di.register_provider(%key, Di::Provider::Instance({{ type }}).new(%factory, transient: {{ _transient }}))
     {% else %}
       {% if deps.empty? && block.args.size > 0 %}
         {% raise "Di.provide block arguments require dependency types: Di.provide(Type1, ...) { |...| ... }" %}
